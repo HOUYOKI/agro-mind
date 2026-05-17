@@ -1,0 +1,7 @@
+product_id,name,crop,target_issue,type,safety_note
+P001,AgroShield Tomato Fungicide,Tomato,Early Blight,Fungicide,Follow label instructions and avoid spraying in high wind
+P002,GreenGuard Aphid Control,Tomato,Aphids,Insecticide,Avoid contact with skin and eyes
+P003,NutraLeaf Balance,Tomato,Nutrient Deficiency,Fertilizer,Not a pesticide
+P004,SafeRoot General Support,General,Unknown,Support Product,Use only after expert confirmation
+P005,CitrusCare Fungicide,Citrus,Fungal Spots,Fungicide,Use protective gloves and follow label instructions
+P006,PalmGuard Insect Control,Palm,Red Palm Weevil,Insecticide,Professional application is recommended

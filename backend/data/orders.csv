@@ -1,0 +1,6 @@
+order_id,customer_id,status,eta,tracking_number
+1001,C001,Out for delivery,2026-05-18,TRK12345
+1002,C002,Processing,2026-05-20,TRK67890
+1003,C001,Delivered,2026-05-10,TRK11111
+1004,C003,Delayed,2026-05-22,TRK22222
+1005,C004,Cancelled,None,TRK33333
