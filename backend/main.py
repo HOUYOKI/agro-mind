@@ -1,12 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File # <-- ADDED: UploadFile and File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import shutil # <-- ADDED: for saving the uploaded image temporarily
+import os     # <-- ADDED: for deleting the temporary image
 
 from backend.tools.intent_classifier import classify_intent
 from backend.tools.safety_checker import check_safety
 from backend.tools.product_recommender import recommend_product
 from backend.tools.logistics_lookup import lookup_order
 from backend.tools.case_memory import init_database, save_case
+from backend.tools.image_diagnosis import analyze_crop_image
 
 app = FastAPI(
     title="Agro-Mind API",
@@ -16,22 +19,24 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173",
+        "http://localhost:5175",  
+        "http://127.0.0.1:5175"   
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 class ChatRequest(BaseModel):
     customer_id: str
     message: str
 
-
 @app.on_event("startup")
 def startup_event():
     init_database()
-
 
 @app.get("/")
 def home():
@@ -40,7 +45,30 @@ def home():
         "status": "ok"
     }
 
+# ==========================================
+# NEW ENDPOINT: IMAGE DIAGNOSIS
+# ==========================================
+@app.post("/diagnose")
+async def diagnose(file: UploadFile = File(...)):
+    # 1. Save the uploaded image temporarily
+    temp_file_path = f"temp_{file.filename}"
+    with open(temp_file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    try:
+        # 2. Run your tool (using mock mode for MVP)
+        # To use the LLM later, change use_llm=True and pass the client
+        result = analyze_crop_image(temp_file_path, use_llm=False)
+        return result
+    
+    finally:
+        # 3. Clean up the temporary file so your server doesn't get cluttered
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
+# ==========================================
+# EXISTING ENDPOINT: CHAT
+# ==========================================
 @app.post("/chat")
 def chat(request: ChatRequest):
     intent = classify_intent(request.message)
