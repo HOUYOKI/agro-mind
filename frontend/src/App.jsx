@@ -12,10 +12,12 @@ import {
   Bot,
   Activity,
   CheckCircle2,
+  ImagePlus, // <-- ADDED: Icon for the upload button
 } from "lucide-react";
 import "./App.css";
 
-const API_URL = "http://127.0.0.1:8000/chat";
+const API_URL = "http://localhost:8000/chat";
+const DIAGNOSE_URL = "http://localhost:8000/diagnose";// <-- ADDED: Image endpoint
 
 const examples = [
   "My tomato leaves have yellow spots. What should I use?",
@@ -41,10 +43,13 @@ function App() {
     {
       role: "assistant",
       text:
-        "Hello, I’m Agro-Mind. Describe your crop issue, product question, safety concern, or order problem, and I’ll analyze it.",
+        "Hello, I’m Agro-Mind. Describe your crop issue, upload a photo of your plant, or ask a support question.",
     },
   ]);
 
+  // ==========================================
+  // EXISTING: SEND TEXT MESSAGE
+  // ==========================================
   async function sendMessage(customMessage = null) {
     const textToSend = customMessage || message;
 
@@ -92,6 +97,76 @@ function App() {
           "I couldn’t connect to the Agro-Mind backend. Make sure FastAPI is running on http://127.0.0.1:8000.",
       };
 
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ==========================================
+  // NEW: HANDLE IMAGE UPLOAD
+  // ==========================================
+  async function handleImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Reset input so you can upload the same file again if needed
+    event.target.value = null;
+
+    // Add a placeholder message to the chat
+    const userMessage = {
+      role: "user",
+      text: `[Uploaded Image: ${file.name}]`,
+    };
+    setMessages((prev) => [...prev, userMessage]);
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch(DIAGNOSE_URL, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Backend returned an error");
+      }
+
+      const data = await response.json();
+      
+      // Format the python tool's response into text
+      let responseText = `📷 Image Diagnosis Complete:\n\n`;
+      responseText += `Condition: ${data.disease} (Confidence: ${(data.confidence * 100).toFixed(0)}%)\n`;
+      responseText += `Severity: ${data.severity}\n`;
+      responseText += `Symptoms: ${data.symptoms?.join(", ")}\n\n`;
+      responseText += `Recommendation: ${data.recommendation_hint}`;
+
+      const assistantMessage = {
+        role: "assistant",
+        text: responseText,
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+      
+      // Update the right panel with a custom layout for the image result
+      setLatestResult({
+        intent: "image_diagnosis",
+        risk_level: data.severity === "high" ? "high" : "low",
+        detected_crop: "From Image",
+        detected_issue: data.disease,
+        product_reason: data.recommendation_hint,
+        escalation_required: data.confidence < 0.6,
+      });
+
+    } catch (error) {
+      const errorMessage = {
+        role: "assistant",
+        error: true,
+        text:
+          "I couldn’t analyze the image. Make sure the backend is running and python-multipart is installed.",
+      };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
@@ -224,7 +299,9 @@ function App() {
                     item.role === "user" ? "user-bubble" : "assistant-bubble"
                   } ${item.error ? "error-bubble" : ""}`}
                 >
-                  <pre>{item.text}</pre>
+                  <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", margin: 0 }}>
+                    {item.text}
+                  </pre>
                 </div>
               </div>
             ))}
@@ -236,7 +313,7 @@ function App() {
                 </div>
                 <div className="message-bubble assistant-bubble typing">
                   <Loader2 className="spin" size={16} />
-                  Analyzing message...
+                  Analyzing...
                 </div>
               </div>
             )}
@@ -254,7 +331,23 @@ function App() {
             ))}
           </div>
 
-          <div className="composer">
+          <div className="composer" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            
+            {/* NEW: IMAGE UPLOAD BUTTON */}
+            <label 
+              style={{ cursor: loading ? "not-allowed" : "pointer", padding: "8px", opacity: loading ? 0.5 : 1 }} 
+              title="Upload crop image"
+            >
+              <ImagePlus size={24} color="#666" />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                disabled={loading}
+                style={{ display: "none" }}
+              />
+            </label>
+
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -265,6 +358,7 @@ function App() {
                   sendMessage();
                 }
               }}
+              style={{ flex: 1 }}
             />
             <button onClick={() => sendMessage()} disabled={loading}>
               {loading ? (
@@ -292,7 +386,7 @@ function App() {
               <Brain size={42} />
               <h3>Waiting for a message</h3>
               <p>
-                Once a customer sends a message, the agent’s decision path will
+                Once a customer sends a message or uploads an image, the agent’s decision path will
                 appear here.
               </p>
             </div>
@@ -313,15 +407,17 @@ function App() {
                   <strong>{latestResult.risk_level}</strong>
                 </div>
 
-                <div className="metric-card">
-                  <CheckCircle2 size={21} />
-                  <span>Case saved</span>
-                  <strong>
-                    {latestResult.case_saved
-                      ? `Yes #${latestResult.case_id}`
-                      : "Not saved"}
-                  </strong>
-                </div>
+                {latestResult.intent !== "image_diagnosis" && (
+                  <div className="metric-card">
+                    <CheckCircle2 size={21} />
+                    <span>Case saved</span>
+                    <strong>
+                      {latestResult.case_saved
+                        ? `Yes #${latestResult.case_id}`
+                        : "Not saved"}
+                    </strong>
+                  </div>
+                )}
 
                 {isOrderStatus ? (
                   <>
@@ -343,8 +439,8 @@ function App() {
                   <>
                     <div className="metric-card">
                       <PackageSearch size={21} />
-                      <span>Product</span>
-                      <strong>{latestResult.recommended_product || "None"}</strong>
+                      <span>Product/Crop</span>
+                      <strong>{latestResult.recommended_product || latestResult.detected_crop || "None"}</strong>
                     </div>
 
                     <div className="metric-card">
