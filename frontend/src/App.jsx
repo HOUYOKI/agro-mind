@@ -12,16 +12,16 @@ import {
   Bot,
   Activity,
   CheckCircle2,
-  ImagePlus, // <-- ADDED: Icon for the upload button
+  ImagePlus,
 } from "lucide-react";
 import "./App.css";
 
-const API_URL = "http://localhost:8000/chat";
-const DIAGNOSE_URL = "http://localhost:8000/diagnose";// <-- ADDED: Image endpoint
+const API_URL = "http://127.0.0.1:8000/chat";
+const DIAGNOSE_URL = "http://127.0.0.1:8000/diagnose";
 
 const examples = [
   "My tomato leaves have yellow spots. What should I use?",
-  "My child touched pesticide and his skin is burning",
+  "Can I eat tomatoes one day after spraying pesticide?",
   "Can you recommend a product for tomato aphids?",
   "Where is my order?",
   "Where is my order 1001?",
@@ -48,7 +48,7 @@ function App() {
   ]);
 
   // ==========================================
-  // EXISTING: SEND TEXT MESSAGE
+  // SEND TEXT MESSAGE TO FASTAPI /chat
   // ==========================================
   async function sendMessage(customMessage = null) {
     const textToSend = customMessage || message;
@@ -85,7 +85,11 @@ function App() {
 
       const assistantMessage = {
         role: "assistant",
-        text: buildFriendlyResponse(data),
+
+        // IMPORTANT:
+        // data.response = Qwen/Ollama final answer from the backend.
+        // buildFriendlyResponse(data) is only a fallback if Qwen response is missing.
+        text: data.response || buildFriendlyResponse(data),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -104,7 +108,7 @@ function App() {
   }
 
   // ==========================================
-  // NEW: HANDLE IMAGE UPLOAD
+  // HANDLE IMAGE UPLOAD TO FASTAPI /diagnose
   // ==========================================
   async function handleImageUpload(event) {
     const file = event.target.files[0];
@@ -113,11 +117,11 @@ function App() {
     // Reset input so you can upload the same file again if needed
     event.target.value = null;
 
-    // Add a placeholder message to the chat
     const userMessage = {
       role: "user",
       text: `[Uploaded Image: ${file.name}]`,
     };
+
     setMessages((prev) => [...prev, userMessage]);
     setLoading(true);
 
@@ -135,10 +139,11 @@ function App() {
       }
 
       const data = await response.json();
-      
-      // Format the python tool's response into text
+
       let responseText = `📷 Image Diagnosis Complete:\n\n`;
-      responseText += `Condition: ${data.disease} (Confidence: ${(data.confidence * 100).toFixed(0)}%)\n`;
+      responseText += `Condition: ${data.disease} (Confidence: ${(
+        data.confidence * 100
+      ).toFixed(0)}%)\n`;
       responseText += `Severity: ${data.severity}\n`;
       responseText += `Symptoms: ${data.symptoms?.join(", ")}\n\n`;
       responseText += `Recommendation: ${data.recommendation_hint}`;
@@ -149,8 +154,7 @@ function App() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-      
-      // Update the right panel with a custom layout for the image result
+
       setLatestResult({
         intent: "image_diagnosis",
         risk_level: data.severity === "high" ? "high" : "low",
@@ -158,8 +162,30 @@ function App() {
         detected_issue: data.disease,
         product_reason: data.recommendation_hint,
         escalation_required: data.confidence < 0.6,
+        execution_trace: [
+          {
+            step: 1,
+            task: "Upload crop image",
+            status: "completed",
+            result: file.name,
+          },
+          {
+            step: 2,
+            task: "Run image diagnosis tool",
+            status: "completed",
+            result: data.disease,
+          },
+          {
+            step: 3,
+            task: "Check confidence and escalation",
+            status: "completed",
+            result:
+              data.confidence < 0.6
+                ? "Human review recommended"
+                : "No immediate escalation",
+          },
+        ],
       });
-
     } catch (error) {
       const errorMessage = {
         role: "assistant",
@@ -167,12 +193,14 @@ function App() {
         text:
           "I couldn’t analyze the image. Make sure the backend is running and python-multipart is installed.",
       };
+
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
   }
 
+  // Fallback only. Main chatbot answer should come from backend data.response.
   function buildFriendlyResponse(data) {
     let response = "";
 
@@ -198,7 +226,7 @@ function App() {
 
     if (data.intent === "pesticide_safety" || data.risk_level === "high") {
       response +=
-        "This looks like a high-risk safety case. Please avoid giving treatment advice until a human expert reviews it.\n\n";
+        "This looks like a safety-sensitive case. Please avoid applying or consuming anything until a human expert reviews it.\n\n";
     }
 
     if (data.detected_crop || data.detected_issue) {
@@ -263,7 +291,7 @@ function App() {
               <p>
                 Chat with the support agent. The backend analyzes each message
                 using intent detection, safety checks, product matching, order
-                lookup, and case memory.
+                lookup, Qwen response generation, and case memory.
               </p>
             </div>
             <Bot size={34} />
@@ -299,7 +327,13 @@ function App() {
                     item.role === "user" ? "user-bubble" : "assistant-bubble"
                   } ${item.error ? "error-bubble" : ""}`}
                 >
-                  <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", margin: 0 }}>
+                  <pre
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      fontFamily: "inherit",
+                      margin: 0,
+                    }}
+                  >
                     {item.text}
                   </pre>
                 </div>
@@ -331,11 +365,16 @@ function App() {
             ))}
           </div>
 
-          <div className="composer" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            
-            {/* NEW: IMAGE UPLOAD BUTTON */}
-            <label 
-              style={{ cursor: loading ? "not-allowed" : "pointer", padding: "8px", opacity: loading ? 0.5 : 1 }} 
+          <div
+            className="composer"
+            style={{ display: "flex", gap: "10px", alignItems: "center" }}
+          >
+            <label
+              style={{
+                cursor: loading ? "not-allowed" : "pointer",
+                padding: "8px",
+                opacity: loading ? 0.5 : 1,
+              }}
               title="Upload crop image"
             >
               <ImagePlus size={24} color="#666" />
@@ -360,6 +399,7 @@ function App() {
               }}
               style={{ flex: 1 }}
             />
+
             <button onClick={() => sendMessage()} disabled={loading}>
               {loading ? (
                 <Loader2 className="spin" size={19} />
@@ -386,8 +426,8 @@ function App() {
               <Brain size={42} />
               <h3>Waiting for a message</h3>
               <p>
-                Once a customer sends a message or uploads an image, the agent’s decision path will
-                appear here.
+                Once a customer sends a message or uploads an image, the agent’s
+                decision path will appear here.
               </p>
             </div>
           )}
@@ -440,7 +480,11 @@ function App() {
                     <div className="metric-card">
                       <PackageSearch size={21} />
                       <span>Product/Crop</span>
-                      <strong>{latestResult.recommended_product || latestResult.detected_crop || "None"}</strong>
+                      <strong>
+                        {latestResult.recommended_product ||
+                          latestResult.detected_crop ||
+                          "None"}
+                      </strong>
                     </div>
 
                     <div className="metric-card">
@@ -501,6 +545,25 @@ function App() {
                 )}
               </div>
 
+              {latestResult.execution_trace &&
+                latestResult.execution_trace.length > 0 && (
+                  <div className="decision-card">
+                    <div className="decision-title">
+                      <Activity size={18} />
+                      Agent execution trace
+                    </div>
+
+                    {latestResult.execution_trace.map((step) => (
+                      <p key={step.step}>
+                        <strong>
+                          {step.step}. {step.task}:
+                        </strong>{" "}
+                        {step.status} — {step.result || "No result"}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
               {latestResult.risk_level === "high" && (
                 <div className="warning-card">
                   <AlertTriangle size={20} />
@@ -513,6 +576,20 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {latestResult.escalation_required &&
+                latestResult.risk_level !== "high" && (
+                  <div className="warning-card">
+                    <AlertTriangle size={20} />
+                    <div>
+                      <strong>Human review recommended</strong>
+                      <p>
+                        This case is safety-sensitive or uncertain, so a human
+                        expert should review it.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
               <details className="json-card">
                 <summary>Raw backend JSON</summary>
