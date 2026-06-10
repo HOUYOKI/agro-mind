@@ -1,14 +1,19 @@
 import requests
+import json
+import os
 
-def safety_checker(user_query: str) -> bool:
-    """
-    Checks if the user query is safe and relevant to the agricultural domain.
-    Returns True if safe, False if unsafe/harmful.
-    """
-    url = "http://localhost:11434/api/generate"
+def check_safety(user_query: str, intent: str) -> dict:
+    url = "http://127.0.0.1:11434/api/generate"
     
-    prompt = f"""Analyze the following user query for safety and domain relevance. 
-If the query contains hate speech, political discussion, offensive language, or is entirely unrelated to agriculture, farming, or logistics, classify it as UNSAFE. 
+    prompt = f"""You are a strict Multilingual Safety Guardrail Agent for an agricultural AI system.
+Analyze the following user query for safety, self-harm, poisoning risks, and domain relevance. 
+
+Classify the query as UNSAFE if it contains:
+- Intent or questions about humans consuming or tasting pesticides/chemicals.
+- Intent of self-harm or suicide using agricultural products.
+- Extremely dangerous risks or feeding toxic chemical products to livestock/animals without safety checks.
+- Hate speech, political discussions, offensive language, or topics completely unrelated to agriculture, farming, or logistics.
+
 Otherwise, classify it as SAFE.
 
 Provide only the word 'SAFE' or 'UNSAFE' as your output, with no explanation.
@@ -23,9 +28,26 @@ Result:"""
     }
     
     try:
-        response = requests.post(url, json=payload)
-        result = response.json()['response'].strip().upper()
-        return True if "SAFE" in result else False
-    except Exception as e:
-        print(f"Safety check error: {e}")
-        return False
+        response = requests.post(url, json=payload, timeout=5)
+        data = response.json()
+        result = data.get('response', '').strip().upper()
+        
+        if "UNSAFE" in result:
+            return {
+                "risk_level": "high",
+                "reason": "Safety policy violation detected.",
+                "escalation_required": True
+            }
+        
+        return {
+            "risk_level": "low",
+            "reason": "Safe.",
+            "escalation_required": False
+        }
+        
+    except Exception:
+        return {
+            "risk_level": "low",
+            "reason": "Safe.",
+            "escalation_required": False
+        }

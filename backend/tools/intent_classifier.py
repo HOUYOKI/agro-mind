@@ -1,19 +1,14 @@
 import requests
 
-def intent_classifier(user_query: str) -> str:
-    """
-    Classifies the farmer's query to route it to the correct tool or agent.
-    """
-    url = "http://localhost:11434/api/generate"
+def classify_intent(user_query: str) -> str:
+    url = "http://127.0.0.1:11434/api/generate"
     
-    prompt = f"""You are an expert intent classifier for the Agro-Mind agricultural project. 
-Analyze the following user query and classify it into EXACTLY ONE of these categories:
-(Disease_Diagnosis, Logistics_Inquiry, Product_Recommendation, General_Agricultural_Query, Unsafe_Content)
-
-Provide only the category name as your output, with no additional text, explanation, or punctuation.
+    prompt = f"""You are a strict intent classifier for an agricultural AI.
+Return ONLY one label from this list: order_status, crop_diagnosis, product_question, pesticide_safety, general_question.
+Do not provide any explanation or extra text.
 
 User Query: "{user_query}"
-Classification:"""
+Label:"""
     
     payload = {
         "model": "qwen2.5:7b",
@@ -22,7 +17,16 @@ Classification:"""
     }
     
     try:
-        response = requests.post(url, json=payload)
-        return response.json()['response'].strip()
-    except Exception as e:
-        return f"Error: {str(e)}"
+        response = requests.post(url, json=payload, timeout=5)
+        data = response.json()
+        result = data.get('response', '').strip().lower()
+        
+        valid_intents = ["order_status", "crop_diagnosis", "product_question", "pesticide_safety", "general_question"]
+        
+        for intent in valid_intents:
+            if intent in result:
+                return intent
+                
+        return "general_question"
+    except Exception:
+        return "general_question"

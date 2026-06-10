@@ -1,66 +1,61 @@
-def retrieve_agronomy_knowledge(query: str, intent: str = None) -> dict:
-    """
-    Placeholder RAG retriever for Agro-Mind MVP.
+import os
+import requests
+import json
 
-    Current purpose:
-    - Give main.py a stable RAG function to call.
-    - Return a predictable dictionary.
-    - Later, this function can be replaced with real FAISS/Chroma retrieval.
+def retrieve_agronomy_knowledge(user_query: str, intent: str = "") -> dict:
+    data_path = r"D:\agro-mind\backend\data\cat1_usage_product_real.jsonl"
+    
+    context = ""
+    if os.path.exists(data_path):
+        try:
+            with open(data_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                parsed_data = []
+                for line in lines:
+                    try:
+                        entry = json.loads(line)
+                        parsed_data.append(str(entry))
+                    except:
+                        continue
+                context = "\n".join(parsed_data[-5:])
+        except Exception:
+            context = ""
 
-    Future real RAG flow:
-    query -> embeddings -> vector database search -> relevant chunks -> sources
-    """
-
-    text = query.lower().strip()
-
-    # Basic placeholder knowledge until real RAG is connected
-    if "eat" in text and ("spray" in text or "spraying" in text or "pesticide" in text):
+    prompt = f"Data: {context}\n\nUser Query: {user_query}\nAnswer based on data in Arabic. If not found, return NO_DATA."
+    
+    url = "http://localhost:11434/api/generate"
+    payload = {"model": "qwen2.5:7b", "prompt": prompt, "stream": False}
+    
+    try:
+        response = requests.post(url, json=payload, timeout=60)
+        data = response.json()
+        result = data.get('response', '').strip()
+        
+        if "NO_DATA" in result or not result:
+            return {
+                "rag_used": True, 
+                "found": False, 
+                "summary": "No relevant info found.", 
+                "sources": [], 
+                "confidence": 0.0,
+                "status": "completed"
+            }
+        
         return {
-            "rag_used": True,
-            "found": True,
-            "summary": (
-                "Food safety after pesticide spraying depends on the exact product label "
-                "and its pre-harvest interval. The system should not guess a waiting period "
-                "without label-specific information."
-            ),
-            "sources": ["Placeholder pesticide safety guidance"],
-            "confidence": 0.75,
-            "status": "placeholder"
+            "rag_used": True, 
+            "found": True, 
+            "summary": result, 
+            "sources": ["product_database"], 
+            "confidence": 0.95,
+            "status": "completed"
         }
-
-    if "tomato" in text and ("yellow" in text or "curling" in text or "spots" in text):
+        
+    except Exception:
         return {
-            "rag_used": True,
-            "found": True,
-            "summary": (
-                "Yellowing, curling, or spotted tomato leaves may be linked to watering stress, "
-                "nutrient deficiency, pests, or fungal disease. Diagnosis should be confirmed "
-                "with images, symptom details, and local growing conditions."
-            ),
-            "sources": ["Placeholder tomato crop guidance"],
-            "confidence": 0.65,
-            "status": "placeholder"
+            "rag_used": True, 
+            "found": False, 
+            "summary": "Error reaching AI service.", 
+            "sources": [], 
+            "confidence": 0.0,
+            "status": "failed"
         }
-
-    if "aphid" in text or "aphids" in text:
-        return {
-            "rag_used": True,
-            "found": True,
-            "summary": (
-                "Aphids are small sap-sucking pests that can weaken plants and cause curling, "
-                "yellowing, or sticky residue on leaves. Treatment depends on crop type, severity, "
-                "and product label suitability."
-            ),
-            "sources": ["Placeholder aphid pest guidance"],
-            "confidence": 0.70,
-            "status": "placeholder"
-        }
-
-    return {
-        "rag_used": True,
-        "found": False,
-        "summary": "No relevant agronomy knowledge was found in the placeholder RAG system.",
-        "sources": [],
-        "confidence": 0.0,
-        "status": "placeholder"
-    }

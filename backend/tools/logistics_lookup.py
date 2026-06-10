@@ -1,90 +1,65 @@
-import re
-from pathlib import Path
+import json
+import os
+import requests
 
-import pandas as pd
+def lookup_order(user_query: str, customer_id: str) -> dict:
+    full_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'cat3_aftersales_logistics_real.jsonl')
+    
+    context = ""
+    if os.path.exists(full_path):
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()[-15:]
+                context = "\n".join([line.strip() for line in lines])
+        except Exception:
+            context = ""
 
-
-ORDERS_FILE = Path(__file__).resolve().parent.parent / "data" / "orders.csv"
-
-
-def extract_order_id(message: str) -> str | None:
+    url = "http://127.0.0.1:11434/api/generate"
+    
+    prompt = f"""You are a logistics assistant. 
+    Use the following reference context to answer the user query:
+    {context}
+    
+    Analyze the user query: "{user_query}"
+    If order information is found, provide status, ETA, and tracking number.
+    If no information is found, return 'NOT_FOUND'.
     """
-    Extracts a 4+ digit order ID from the customer message.
-    Example: 'Where is order 1001?' -> '1001'
-    """
-    match = re.search(r"\b\d{4,}\b", message)
-    if match:
-        return match.group(0)
-
-    return None
-
-
-def lookup_order(message: str, customer_id: str) -> dict:
-    """
-    Looks up order information from mock orders.csv.
-
-    Priority:
-    1. If message contains an order ID, search by order_id.
-    2. If no order ID, return the latest order for the customer_id.
-    """
-
+    
+    payload = {
+        "model": "qwen2.5:7b",
+        "prompt": prompt,
+        "stream": False
+    }
+    
     try:
-        orders = pd.read_csv(ORDERS_FILE, dtype=str)
-    except FileNotFoundError:
-        return {
-            "order_found": False,
-            "order_id": None,
-            "status": None,
-            "eta": None,
-            "tracking_number": None,
-            "reason": "orders.csv file was not found."
-        }
-
-    order_id = extract_order_id(message)
-
-    if order_id:
-        matched_orders = orders[orders["order_id"] == order_id]
-
-        if matched_orders.empty:
+        response = requests.post(url, json=payload, timeout=10)
+        data = response.json()
+        ai_response = data.get('response', '').strip()
+        
+        if "NOT_FOUND" in ai_response or not ai_response:
             return {
                 "order_found": False,
-                "order_id": order_id,
+                "order_id": None,
                 "status": None,
                 "eta": None,
                 "tracking_number": None,
-                "reason": f"No order found with order ID {order_id}."
+                "reason": "Order not found in our logs."
             }
-
-        order = matched_orders.iloc[0]
-
+        
         return {
             "order_found": True,
-            "order_id": order["order_id"],
-            "status": order["status"],
-            "eta": order["eta"],
-            "tracking_number": order["tracking_number"],
-            "reason": "Order found by order ID."
+            "order_id": "Detected",
+            "status": "Found",
+            "eta": "Check details",
+            "tracking_number": "Check details",
+            "reason": ai_response
         }
-
-    customer_orders = orders[orders["customer_id"] == customer_id]
-
-    if customer_orders.empty:
+    except Exception:
         return {
             "order_found": False,
             "order_id": None,
             "status": None,
             "eta": None,
             "tracking_number": None,
-            "reason": f"No orders found for customer {customer_id}."
+            "reason": "System error occurred."
         }
-
-    latest_order = customer_orders.iloc[-1]
-
-    return {
-        "order_found": True,
-        "order_id": latest_order["order_id"],
-        "status": latest_order["status"],
-        "eta": latest_order["eta"],
-        "tracking_number": latest_order["tracking_number"],
-        "reason": "No order ID provided. Returned latest order for this customer."
-    }
