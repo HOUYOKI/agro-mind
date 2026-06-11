@@ -1,148 +1,70 @@
+import requests
 import base64
-from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
-# -----------------------------
-# Data structure for response
-# -----------------------------
-@dataclass
-class DiagnosisResult:
-    disease: str
-    confidence: float
-    symptoms: list
-    recommendation_hint: str
-    severity: str
+URL = "http://localhost:11434/api/generate"
 
 
-# -----------------------------
-# Helper: encode image
-# -----------------------------
-def encode_image_to_base64(image_path: str) -> str:
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode("utf-8")
-
-
-# -----------------------------
-# MAIN TOOL
-# -----------------------------
-def analyze_crop_image(
-    image_path: str,
-    use_llm: bool = False,
-    client=None
-) -> Dict[str, Any]:
+def encode_image(image_path: str) -> str:
     """
-    Agro-Mind Image Diagnosis Tool
-    Input: image_path
-    Output: structured diagnosis
+    Converts image to base64 string for vision model input.
+    """
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+
+def analyze_crop_image(image_path: str) -> Dict[str, Any]:
+    """
+    Uses a vision-capable model (via Ollama or similar) to analyze crop disease images.
+    Returns diagnosis, confidence, and explanation.
     """
 
-    # -------------------------
-    # MODE 1: MOCK (default)
-    # -------------------------
-    if not use_llm:
-        return mock_diagnosis(image_path)
+    image_base64 = encode_image(image_path)
 
-    # -------------------------
-    # MODE 2: LLM VISION
-    # -------------------------
-    if client is None:
-        raise ValueError("LLM client must be provided when use_llm=True")
+    prompt = f"""
+You are an expert agricultural AI (Agro-Mind Vision Agent).
 
-    base64_image = encode_image_to_base64(image_path)
+Analyze the following crop image and provide:
+1. Most likely disease or pest
+2. Confidence level (0-100)
+3. Brief explanation of symptoms
+4. Recommended next action (non-harmful, safe agricultural advice)
 
-    prompt = """
-    You are an expert agricultural crop disease diagnostician.
+Rules:
+- Do NOT give unsafe pesticide dosage instructions
+- If uncertain, say "Low confidence - recommend human agronomist review"
+- Be conservative and avoid hallucination
 
-    Analyze the image and return:
-    - disease name
-    - confidence (0 to 1)
-    - visible symptoms
-    - severity (low, medium, high)
-    - recommended next steps
+Return ONLY valid JSON in this format:
+{{
+  "disease": "",
+  "confidence": 0,
+  "explanation": "",
+  "recommendation": ""
+}}
 
-    IMPORTANT:
-    - Do NOT guess if unclear
-    - If uncertain, say "uncertain diagnosis"
-    - Focus on crop diseases, pests, nutrient deficiencies
-    """
+Image (base64):
+{image_base64}
+"""
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    }
-                ]
-            }
-        ]
-    )
-
-    result_text = response.choices[0].message.content
-
-    return {
-        "raw_output": result_text,
-        "mode": "llm"
+    payload = {
+        "model": "qwen2.5:7b",
+        "prompt": prompt,
+        "stream": False
     }
 
+    try:
+        response = requests.post(URL, json=payload)
+        result_text = response.json()["response"]
 
-# -----------------------------
-# MOCK DIAGNOSIS (important for MVP)
-# -----------------------------
-def mock_diagnosis(image_path: str) -> Dict[str, Any]:
-    """
-    Fake but realistic crop diagnosis output
-    used for MVP when no vision model is connected
-    """
+        # Try to parse JSON safely
+        import json
+        return json.loads(result_text)
 
-    # simple heuristic (you can upgrade later)
-    filename = image_path.lower()
-
-    if "leaf" in filename:
-        result = DiagnosisResult(
-            disease="Leaf Blight (possible fungal infection)",
-            confidence=0.78,
-            symptoms=[
-                "yellow/brown spots on leaves",
-                "leaf curling",
-                "dry patches"
-            ],
-            recommendation_hint="Use copper-based fungicide and remove infected leaves",
-            severity="medium"
-        )
-
-    elif "spot" in filename:
-        result = DiagnosisResult(
-            disease="Bacterial Leaf Spot",
-            confidence=0.74,
-            symptoms=[
-                "dark circular lesions",
-                "water-soaked spots"
-            ],
-            recommendation_hint="Apply antibacterial crop protection spray",
-            severity="medium"
-        )
-
-    else:
-        result = DiagnosisResult(
-            disease="Unknown or Mixed Condition",
-            confidence=0.55,
-            symptoms=["unclear visual symptoms"],
-            recommendation_hint="Recommend human agronomist review",
-            severity="low"
-        )
-
-    return {
-        "disease": result.disease,
-        "confidence": result.confidence,
-        "symptoms": result.symptoms,
-        "recommendation_hint": result.recommendation_hint,
-        "severity": result.severity,
-        "mode": "mock"
-    }
+    except Exception as e:
+        return {
+    "condition": result.get("disease", ""),
+    "confidence": result.get("confidence", 0),
+    "symptoms": result.get("explanation", ""),
+    "recommendation": result.get("recommendation", "")
+}
