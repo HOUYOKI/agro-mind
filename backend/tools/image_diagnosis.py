@@ -1,9 +1,17 @@
-import requests
 import base64
 import json
-from typing import Dict, Any
+import os
+from typing import Dict, Any, Optional
+
+import requests
+
 
 URL = "http://localhost:11434/api/generate"
+
+# Important:
+# qwen2.5:7b is usually text-only.
+# For real image analysis, use a vision model such as llava or qwen2.5vl if installed.
+VISION_MODEL = "qwen2.5vl:7b"
 
 
 def encode_image(image_path: str) -> str:
@@ -14,67 +22,149 @@ def encode_image(image_path: str) -> str:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
-def analyze_crop_image(image_path: str) -> Dict[str, Any]:
+def _fallback_diagnosis(image_path: str) -> Dict[str, Any]:
     """
-    Uses a vision-capable model through Ollama to analyze crop disease images.
-    Returns diagnosis, confidence, explanation, and recommendation.
+    Safe MVP fallback when a real vision model is unavailable.
+    Uses filename hints only, so it avoids fake confidence.
     """
+    filename = os.path.basename(image_path).lower()
 
-    image_base64 = encode_image(image_path)
+    if "yellow" in filename or "chlorosis" in filename:
+        return {
+            "disease": "Possible nutrient deficiency or leaf chlorosis",
+            "confidence": 0.45,
+            "severity": "medium",
+            "symptoms": [
+                "yellowing leaves",
+                "possible nutrient stress",
+                "visual diagnosis requires review"
+            ],
+            "recommendation_hint": "Check watering, soil nutrients, and consult an agronomist before applying treatments.",
+            "mode": "fallback"
+        }
 
-    prompt = f"""
-You are an expert agricultural AI called Agro-Mind Vision Agent.
+    if "spot" in filename or "blight" in filename:
+        return {
+            "disease": "Possible leaf spot or blight",
+            "confidence": 0.45,
+            "severity": "medium",
+            "symptoms": [
+                "possible dark or damaged leaf areas",
+                "possible fungal or bacterial symptoms",
+                "visual diagnosis requires review"
+            ],
+            "recommendation_hint": "Isolate affected leaves if needed and request agronomist review before pesticide use.",
+            "mode": "fallback"
+        }
 
-Analyze the following crop image and provide:
-1. Most likely disease or pest
-2. Confidence level from 0 to 100
-3. Brief explanation of visible symptoms
-4. Recommended next action using safe agricultural advice
-
-Rules:
-- Do NOT give unsafe pesticide dosage instructions.
-- If uncertain, say "Low confidence - recommend human agronomist review".
-- Be conservative and avoid hallucination.
-- Return ONLY valid JSON.
-
-Return the answer in this exact JSON format:
-{{
-  "disease": "",
-  "confidence": 0,
-  "explanation": "",
-  "recommendation": ""
-}}
-
-Image base64:
-{image_base64}
-"""
-
-    payload = {
-        "model": "qwen2.5:7b",
-        "prompt": prompt,
-        "stream": False
+    return {
+        "disease": "Unknown or mixed condition",
+        "confidence": 0.25,
+        "severity": "low",
+        "symptoms": [
+            "unclear visual symptoms",
+            "image requires human agronomist review"
+        ],
+        "recommendation_hint": "Low confidence. Recommend human agronomist review before treatment.",
+        "mode": "fallback"
     }
 
+
+def _normalize_result(result: Dict[str, Any], mode: str = "llm") -> Dict[str, Any]:
+    """
+    Normalizes any model response into the format expected by the frontend/backend.
+    """
+    confidence = result.get("confidence", 0)
+
     try:
-        response = requests.post(URL, json=payload, timeout=60)
+        confidence = float(confidence)
+    except Exception:
+        confidence = 0
+
+    # If model returns 0-100, convert to 0-1
+    if confidence > 1:
+        confidence = confidence / 100
+
+    symptoms = result.get("symptoms")
+
+    if symptoms is None:
+        explanation = result.get("explanation", "")
+        symptoms = [explanation] if explanation else ["No clear symptoms provided."]
+
+    if isinstance(symptoms, str):
+        symptoms = [symptoms]
+
+    return {
+        "disease": result.get("disease", "Unknown or mixed condition"),
+        "confidence": round(confidence, 2),
+        "severity": result.get("severity", "unknown"),
+        "symptoms": symptoms,
+        "recommendation_hint": result.get(
+            "recommendation_hint",
+            result.get("recommendation", "Recommend human agronomist review.")
+        ),
+        "mode": mode
+    }
+
+
+def analyze_crop_image(
+    image_path: str,
+    use_llm: bool = False,
+    client: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Agro-Mind image diagnosis tool.
+
+    Works safely in two modes:
+    - use_llm=False: returns MVP-safe fallback output.
+    - use_llm=True: tries local Ollama vision model, then falls back if unavailable.
+
+    Returns:
+    disease, confidence, severity, symptoms, recommendation_hint, mode
+    """
+
+    if not use_llm:
+        return _fallback_diagnosis(image_path)
+
+    try:
+        image_base64 = encode_image(image_path)
+
+        prompt = """
+You are Agro-Mind Vision Agent, an agricultural image diagnosis assistant.
+
+Analyze the crop image and return ONLY valid JSON in this exact format:
+
+{
+  "disease": "",
+  "confidence": 0.0,
+  "severity": "low/medium/high",
+  "symptoms": [],
+  "recommendation_hint": ""
+}
+
+Rules:
+- Be conservative.
+- Do not invent a diagnosis if the image is unclear.
+- Do not give unsafe pesticide dosage instructions.
+- If uncertain, recommend human agronomist review.
+"""
+
+        payload = {
+            "model": VISION_MODEL,
+            "prompt": prompt,
+            "images": [image_base64],
+            "stream": False
+        }
+
+        response = requests.post(URL, json=payload, timeout=90)
         response.raise_for_status()
 
         result_text = response.json().get("response", "").strip()
-
         result = json.loads(result_text)
 
-        return {
-            "disease": result.get("disease", "Unknown"),
-            "confidence": result.get("confidence", 0),
-            "explanation": result.get("explanation", ""),
-            "recommendation": result.get("recommendation", "Recommend human agronomist review.")
-        }
+        return _normalize_result(result, mode="llm")
 
-    except Exception as e:
-        return {
-            "disease": "Unknown",
-            "confidence": 0,
-            "explanation": "Image analysis failed or returned invalid JSON.",
-            "recommendation": "Recommend human agronomist review.",
-            "error": str(e)
-        }
+    except Exception as error:
+        fallback = _fallback_diagnosis(image_path)
+        fallback["error"] = str(error)
+        return fallback

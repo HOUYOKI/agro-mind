@@ -13,6 +13,9 @@ from backend.tools.image_diagnosis import analyze_crop_image
 from backend.tools.llm_agent import ask_agro_mind
 from backend.tools.rag_retriever import retrieve_agronomy_knowledge
 
+from backend.database.db import SessionLocal
+from backend.database.models import Case
+
 
 app = FastAPI(
     title="Agro-Mind API",
@@ -51,6 +54,50 @@ def home():
         "message": "Agro-Mind backend is running",
         "status": "ok"
     }
+
+
+# ==========================================
+# HUMAN ESCALATION QUEUE ENDPOINT
+# ==========================================
+@app.get("/cases/escalations")
+def get_escalated_cases(limit: int = 20):
+    """
+    Human review queue.
+    Shows cases that require human support/agronomy review.
+    """
+    db = SessionLocal()
+
+    try:
+        cases = (
+            db.query(Case)
+            .filter(Case.escalation_required.is_(True))
+            .order_by(Case.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        return {
+            "count": len(cases),
+            "cases": [
+                {
+                    "case_id": case.case_id,
+                    "customer_id": case.customer_id,
+                    "intent": case.intent,
+                    "message": case.message,
+                    "risk_level": case.risk_level,
+                    "possible_issue": case.possible_issue,
+                    "recommended_product": case.recommended_product,
+                    "order_id": case.order_id,
+                    "order_status": case.order_status,
+                    "escalation_required": case.escalation_required,
+                    "created_at": case.created_at.isoformat() if case.created_at else None
+                }
+                for case in cases
+            ]
+        }
+
+    finally:
+        db.close()
 
 
 # ==========================================
@@ -112,20 +159,37 @@ def chat(request: ChatRequest):
         "status": "skipped"
     }
 
-    # 6. Run product recommender only when useful
-    if intent in ["crop_diagnosis", "product_question"]:
+    # ==========================================
+    # COMPLAINT / HUMAN REVIEW OVERRIDE
+    # ==========================================
+    if intent == "complaint":
+        if safety_result["risk_level"] == "low":
+            safety_result["risk_level"] = "medium"
+
+        safety_result["reason"] = "Customer complaint or crop damage claim requires human review."
+        safety_result["escalation_required"] = True
+
+    # ==========================================
+    # TOOL ROUTING
+    # ==========================================
+
+    # Run product recommender only for normal product/crop support.
+    # Do not recommend products for complaints or safety escalations.
+    if intent in ["crop_diagnosis", "product_question"] and not safety_result["escalation_required"]:
         product_result = recommend_product(request.message)
 
-    # 7. Run RAG when useful
-    if intent in ["crop_diagnosis", "product_question", "pesticide_safety", "general_question"]:
+    # Run RAG only for agronomy/product support.
+    # Do not run RAG for complaints or generic pesticide exposure.
+    if intent in ["crop_diagnosis", "product_question"] and not safety_result["escalation_required"]:
         rag_result = retrieve_agronomy_knowledge(request.message, intent)
 
-    # 8. Run logistics/order lookup only for order intent
+    # Run logistics/order lookup only for order intent.
+    # IMPORTANT: lookup_order expects (user_query, customer_id)
     if intent == "order_status":
         order_result = lookup_order(request.message, request.customer_id)
 
     # ==========================================
-    # OLD RULE-BASED RESPONSE / FALLBACK
+    # RULE-BASED RESPONSE / FALLBACK
     # ==========================================
     response_text = (
         f"Intent: {intent}\n\n"
@@ -133,7 +197,14 @@ def chat(request: ChatRequest):
         f"Safety reason: {safety_result['reason']}\n\n"
     )
 
-    if product_result["recommended_product"]:
+    if intent == "complaint":
+        response_text += (
+            "This complaint should be reviewed by a human support or agronomy expert. "
+            "Please provide the product name, order number, photos of the crop damage, "
+            "when and how the product was applied, and any label instructions followed."
+        )
+
+    elif product_result["recommended_product"]:
         response_text += (
             f"Detected crop: {product_result['detected_crop']}\n"
             f"Possible issue: {product_result['detected_issue']}\n"
@@ -143,10 +214,7 @@ def chat(request: ChatRequest):
             "Important: Please confirm the diagnosis before applying any pesticide."
         )
 
-    elif intent != "order_status":
-        response_text += "No product recommendation was made for this message."
-
-    if intent == "order_status":
+    elif intent == "order_status":
         if order_result["order_found"]:
             response_text += (
                 f"Order status:\n"
@@ -161,6 +229,16 @@ def chat(request: ChatRequest):
                 f"Order status:\n"
                 f"{order_result['reason']}"
             )
+
+    elif intent == "pesticide_safety":
+        response_text += (
+            "Pesticide or chemical exposure was detected. "
+            "Follow the product label first-aid instructions, wash exposed skin with clean water, "
+            "and seek medical or human expert review if symptoms continue or exposure is severe."
+        )
+
+    else:
+        response_text += "No product recommendation was made for this message."
 
     # ==========================================
     # QWEN LLM FINAL CUSTOMER RESPONSE
@@ -218,8 +296,10 @@ Rules:
 9. If the customer asks whether food can be eaten after spraying, say you cannot confirm safety from the message alone. Tell them to check the specific product label for the pre-harvest interval/waiting period and consult a human agricultural expert.
 10. If retrieved knowledge is found, use it to support the answer, but do not pretend it is a final diagnosis.
 11. If RAG status is "placeholder", do not mention that to the customer.
-12. Keep the answer between 3 and 7 short sentences.
-13. Sound like a helpful chatbot, not a formal email.
+12. If the intent is complaint, do not recommend any product. Apologize briefly, say the case should be reviewed by a human support/agronomy expert, and ask for product name, order number, photos, and application details.
+13. If the customer reports pesticide or chemical exposure, give safe first-aid style guidance only. Do not recommend products. Do not downplay the risk. Tell them to follow the label and seek medical/human expert help if symptoms are serious or exposure involves eyes, breathing, ingestion, children, pets, or livestock.
+14. Keep the answer between 3 and 7 short sentences.
+15. Sound like a helpful chatbot, not a formal email.
 """
 
     try:
@@ -270,7 +350,7 @@ Rules:
         {
             "step": 4,
             "task": "Run product recommendation if needed",
-            "status": "completed" if intent in ["crop_diagnosis", "product_question"] else "skipped",
+            "status": "completed" if product_result["recommended_product"] else "skipped",
             "result": product_result["recommended_product"]
         },
         {
@@ -301,13 +381,8 @@ Rules:
         "received_message": request.message,
         "intent": intent,
 
-        # Main final response shown to customer
         "response": ai_response,
-
-        # Shows the agent workflow steps
         "execution_trace": execution_trace,
-
-        # Old rule-based response kept for debugging
         "debug_rule_based_response": response_text,
 
         "recommended_product": product_result["recommended_product"],
