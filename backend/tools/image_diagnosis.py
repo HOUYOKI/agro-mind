@@ -1,5 +1,6 @@
 import requests
 import base64
+import json
 from typing import Dict, Any
 
 URL = "http://localhost:11434/api/generate"
@@ -15,27 +16,28 @@ def encode_image(image_path: str) -> str:
 
 def analyze_crop_image(image_path: str) -> Dict[str, Any]:
     """
-    Uses a vision-capable model (via Ollama or similar) to analyze crop disease images.
-    Returns diagnosis, confidence, and explanation.
+    Uses a vision-capable model through Ollama to analyze crop disease images.
+    Returns diagnosis, confidence, explanation, and recommendation.
     """
 
     image_base64 = encode_image(image_path)
 
     prompt = f"""
-You are an expert agricultural AI (Agro-Mind Vision Agent).
+You are an expert agricultural AI called Agro-Mind Vision Agent.
 
 Analyze the following crop image and provide:
 1. Most likely disease or pest
-2. Confidence level (0-100)
-3. Brief explanation of symptoms
-4. Recommended next action (non-harmful, safe agricultural advice)
+2. Confidence level from 0 to 100
+3. Brief explanation of visible symptoms
+4. Recommended next action using safe agricultural advice
 
 Rules:
-- Do NOT give unsafe pesticide dosage instructions
-- If uncertain, say "Low confidence - recommend human agronomist review"
-- Be conservative and avoid hallucination
+- Do NOT give unsafe pesticide dosage instructions.
+- If uncertain, say "Low confidence - recommend human agronomist review".
+- Be conservative and avoid hallucination.
+- Return ONLY valid JSON.
 
-Return ONLY valid JSON in this format:
+Return the answer in this exact JSON format:
 {{
   "disease": "",
   "confidence": 0,
@@ -43,7 +45,7 @@ Return ONLY valid JSON in this format:
   "recommendation": ""
 }}
 
-Image (base64):
+Image base64:
 {image_base64}
 """
 
@@ -54,17 +56,25 @@ Image (base64):
     }
 
     try:
-        response = requests.post(URL, json=payload)
-        result_text = response.json()["response"]
+        response = requests.post(URL, json=payload, timeout=60)
+        response.raise_for_status()
 
-        # Try to parse JSON safely
-        import json
-        return json.loads(result_text)
+        result_text = response.json().get("response", "").strip()
+
+        result = json.loads(result_text)
+
+        return {
+            "disease": result.get("disease", "Unknown"),
+            "confidence": result.get("confidence", 0),
+            "explanation": result.get("explanation", ""),
+            "recommendation": result.get("recommendation", "Recommend human agronomist review.")
+        }
 
     except Exception as e:
         return {
-    "condition": result.get("disease", ""),
-    "confidence": result.get("confidence", 0),
-    "symptoms": result.get("explanation", ""),
-    "recommendation": result.get("recommendation", "")
-}
+            "disease": "Unknown",
+            "confidence": 0,
+            "explanation": "Image analysis failed or returned invalid JSON.",
+            "recommendation": "Recommend human agronomist review.",
+            "error": str(e)
+        }

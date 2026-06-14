@@ -1,65 +1,67 @@
-import json
 import os
-import requests
+import json
 
-def lookup_order(user_query: str, customer_id: str) -> dict:
-    full_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'cat3_aftersales_logistics_real.jsonl')
-    
-    context = ""
-    if os.path.exists(full_path):
-        try:
-            with open(full_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-15:]
-                context = "\n".join([line.strip() for line in lines])
-        except Exception:
-            context = ""
-
-    url = "http://127.0.0.1:11434/api/generate"
-    
-    prompt = f"""You are a logistics assistant. 
-    Use the following reference context to answer the user query:
-    {context}
-    
-    Analyze the user query: "{user_query}"
-    If order information is found, provide status, ETA, and tracking number.
-    If no information is found, return 'NOT_FOUND'.
+def lookup_order(user_query: str, customer_id: str = None) -> dict:
     """
-    
-    payload = {
-        "model": "qwen2.5:7b",
-        "prompt": prompt,
-        "stream": False
+    Looks up shipping and logistics data from the JSON Lines database.
+    """
+    fallback_response = {
+        "order_found": False,
+        "order_id": None,
+        "status": None,
+        "eta": None,
+        "tracking_number": None,
+        "reason": "Order or customer details not found in the logistics database."
     }
     
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        data = response.json()
-        ai_response = data.get('response', '').strip()
+        current_dir = os.path.dirname(os.path.abspath(__file__)) 
+        backend_dir = os.path.dirname(current_dir)              
+        data_file_path = os.path.join(backend_dir, "data", "orders.jsonl")
         
-        if "NOT_FOUND" in ai_response or not ai_response:
+        if not os.path.exists(data_file_path):
             return {
-                "order_found": False,
-                "order_id": None,
-                "status": None,
-                "eta": None,
-                "tracking_number": None,
-                "reason": "Order not found in our logs."
+                **fallback_response,
+                "reason": f"Database file not found at: {data_file_path}"
             }
-        
-        return {
-            "order_found": True,
-            "order_id": "Detected",
-            "status": "Found",
-            "eta": "Check details",
-            "tracking_number": "Check details",
-            "reason": ai_response
-        }
-    except Exception:
+
+        with open(data_file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                order_data = json.loads(line)
+                
+                if str(order_data.get("customer_id")) == str(customer_id):
+                    return {
+                        "order_found": True,
+                        "order_id": order_data.get("order_id"),
+                        "status": order_data.get("status"),
+                        "eta": order_data.get("eta"),
+                        "tracking_number": order_data.get("tracking_number"),
+                        "reason": f"The item '{order_data.get('product')}' is currently [{order_data.get('status')}] at {order_data.get('current_location')}."
+                    }
+                    
+        return fallback_response
+
+    except Exception as e:
+        print(f"DEBUG ERROR: {str(e)}") 
         return {
             "order_found": False,
             "order_id": None,
             "status": None,
             "eta": None,
             "tracking_number": None,
-            "reason": "System error occurred."
+            "reason": f"System error occurred. Technical details: {str(e)}"
+         
+         }
+         
+    except Exception as e:
+        print(f"DEBUG ERROR: {str(e)}") 
+        return {
+            "order_found": False,
+            "order_id": None,
+            "status": None,
+            "eta": None,
+            "tracking_number": None,
+            "reason": f"System error occurred. Technical details: {str(e)}"
         }

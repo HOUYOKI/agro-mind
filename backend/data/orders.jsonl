@@ -1,0 +1,5 @@
+{"order_id": "1001", "customer_id": "123", "product": "Premium Fertilizer", "status": "Shipped", "eta": "2026-06-14", "tracking_number": "AGRO-TRK-9901", "current_location": "Riyadh Hub"}
+{"order_id": "1002", "customer_id": "124", "product": "Organic Pesticide", "status": "Delivered", "eta": "2026-06-09", "tracking_number": "AGRO-TRK-9902", "current_location": "Customer Doorstep"}
+{"order_id": "1003", "customer_id": "125", "product": "Tomato Seed Package XL", "status": "In Transit", "eta": "2026-06-12", "tracking_number": "AGRO-TRK-9903", "current_location": "Jeddah Sorting Facility"}
+{"order_id": "1004", "customer_id": "126", "product": "Drip Irrigation Valve", "status": "Processing", "eta": "2026-06-16", "tracking_number": "AGRO-TRK-9904", "current_location": "Main Warehouse"}
+{"order_id": "1005", "customer_id": "123", "product": "Fungicide Spray", "status": "Shipped", "eta": "2026-06-15", "tracking_number": "AGRO-TRK-9905", "current_location": "Dammam Distribution Center"}
