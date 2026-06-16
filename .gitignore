@@ -29,3 +29,7 @@ Thumbs.db
 client_data/
 
 backend/data/chromadb_local/
+# RAG V3 local data/vector database
+backend/rag_v3/data/
+backend/rag_v3/chromadb/
+backend/rag_v3/check_chroma.py
