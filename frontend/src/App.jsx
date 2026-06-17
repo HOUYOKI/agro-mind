@@ -1,3 +1,4 @@
+import CustomerProfile from "./CustomerProfile";
 import { useState } from "react";
 import {
   Leaf,
@@ -34,10 +35,11 @@ function formatLabel(value) {
 }
 
 function App() {
-  const [customerId, setCustomerId] = useState("C001");
+  const [customerId, setCustomerId] = useState("123");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [latestResult, setLatestResult] = useState(null);
+  const [showProfiles, setShowProfiles] = useState(false);
 
   const [messages, setMessages] = useState([
     {
@@ -47,9 +49,6 @@ function App() {
     },
   ]);
 
-  // ==========================================
-  // SEND TEXT MESSAGE TO FASTAPI /chat
-  // ==========================================
   async function sendMessage(customMessage = null) {
     const textToSend = customMessage || message;
 
@@ -77,6 +76,8 @@ function App() {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.log("Backend error:", errorText);
         throw new Error("Backend returned an error");
       }
 
@@ -85,10 +86,6 @@ function App() {
 
       const assistantMessage = {
         role: "assistant",
-
-        // IMPORTANT:
-        // data.response = Qwen/Ollama final answer from the backend.
-        // buildFriendlyResponse(data) is only a fallback if Qwen response is missing.
         text: data.response || buildFriendlyResponse(data),
       };
 
@@ -107,14 +104,10 @@ function App() {
     }
   }
 
-  // ==========================================
-  // HANDLE IMAGE UPLOAD TO FASTAPI /diagnose
-  // ==========================================
   async function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Reset input so you can upload the same file again if needed
     event.target.value = null;
 
     const userMessage = {
@@ -135,18 +128,41 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error("Backend returned an error");
+        const errorText = await response.text();
+
+        console.error("Diagnose API Error:");
+        console.error("Status:", response.status);
+        console.error("Response:", errorText);
+
+        throw new Error(`Backend returned ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
 
+      console.log("Diagnosis response:", data);
+
+      const confidence =
+        data.confidence > 1
+          ? data.confidence
+          : Math.round((data.confidence || 0) * 100);
+
       let responseText = `📷 Image Diagnosis Complete:\n\n`;
-      responseText += `Condition: ${data.disease} (Confidence: ${(
-        data.confidence * 100
-      ).toFixed(0)}%)\n`;
-      responseText += `Severity: ${data.severity}\n`;
-      responseText += `Symptoms: ${data.symptoms?.join(", ")}\n\n`;
-      responseText += `Recommendation: ${data.recommendation_hint}`;
+
+      responseText += `Disease: ${
+        data.disease || data.condition || "Unknown"
+      }\n\n`;
+
+      responseText += `Confidence: ${confidence}%\n\n`;
+
+      responseText += `Severity: ${data.severity || "Not available"}\n\n`;
+
+      responseText += `Symptoms: ${
+        data.explanation || "Not available"
+      }\n\n`;
+
+      responseText += `Recommendation: ${
+        data.recommendation || "Not available"
+      }`;
 
       const assistantMessage = {
         role: "assistant",
@@ -187,11 +203,12 @@ function App() {
         ],
       });
     } catch (error) {
+      console.error("Image Upload Error:", error);
+
       const errorMessage = {
         role: "assistant",
         error: true,
-        text:
-          "I couldn’t analyze the image. Make sure the backend is running and python-multipart is installed.",
+        text: `Image diagnosis failed: ${error.message}`,
       };
 
       setMessages((prev) => [...prev, errorMessage]);
@@ -200,7 +217,6 @@ function App() {
     }
   }
 
-  // Fallback only. Main chatbot answer should come from backend data.response.
   function buildFriendlyResponse(data) {
     let response = "";
 
@@ -273,332 +289,391 @@ function App() {
           </div>
         </div>
 
-        <div className="system-status">
-          <span></span>
-          Live agent pipeline
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
+          <button
+            onClick={() => setShowProfiles((prev) => !prev)}
+            style={{
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: "999px",
+              padding: "8px 12px",
+              cursor: "pointer",
+              background: "rgba(255,255,255,0.08)",
+              color: "inherit",
+            }}
+          >
+            {showProfiles ? "Back to Chat" : "Customer Profiles"}
+          </button>
+
+          <div className="system-status">
+            <span></span>
+            Live agent pipeline
+          </div>
         </div>
       </header>
 
-      <main className="main-layout">
-        <section className="chat-card">
-          <div className="chat-header">
-            <div>
-              <div className="eyebrow">
-                <Sprout size={15} />
-                Customer Chat
+      {showProfiles ? (
+        <CustomerProfile />
+      ) : (
+        <main className="main-layout">
+          <section className="chat-card">
+            <div className="chat-header">
+              <div>
+                <div className="eyebrow">
+                  <Sprout size={15} />
+                  Customer Chat
+                </div>
+                <h2>Ask Agro-Mind</h2>
+                <p>
+                  Chat with the support agent. The backend analyzes each message
+                  using intent detection, safety checks, product matching, order
+                  lookup, Qwen response generation, and case memory.
+                </p>
               </div>
-              <h2>Ask Agro-Mind</h2>
-              <p>
-                Chat with the support agent. The backend analyzes each message
-                using intent detection, safety checks, product matching, order
-                lookup, Qwen response generation, and case memory.
-              </p>
+              <Bot size={34} />
             </div>
-            <Bot size={34} />
-          </div>
 
-          <div className="customer-row">
-            <label>Customer ID</label>
-            <input
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              placeholder="C001"
-            />
-          </div>
+            <div className="customer-row">
+              <label>Customer ID</label>
+              <input
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                placeholder="123"
+              />
+            </div>
 
-          <div className="chat-window">
-            {messages.map((item, index) => (
-              <div
-                key={index}
-                className={`message-row ${
-                  item.role === "user" ? "user-row" : "assistant-row"
-                }`}
-              >
-                <div className="message-avatar">
-                  {item.role === "user" ? (
-                    <UserRound size={17} />
-                  ) : (
+            <div className="chat-window">
+              {messages.map((item, index) => (
+                <div
+                  key={index}
+                  className={`message-row ${
+                    item.role === "user" ? "user-row" : "assistant-row"
+                  }`}
+                >
+                  <div className="message-avatar">
+                    {item.role === "user" ? (
+                      <UserRound size={17} />
+                    ) : (
+                      <Leaf size={17} />
+                    )}
+                  </div>
+
+                  <div
+                    className={`message-bubble ${
+                      item.role === "user" ? "user-bubble" : "assistant-bubble"
+                    } ${item.error ? "error-bubble" : ""}`}
+                  >
+                    <pre
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "inherit",
+                        margin: 0,
+                      }}
+                    >
+                      {item.text}
+                    </pre>
+                  </div>
+                </div>
+              ))}
+
+              {loading && (
+                <div className="message-row assistant-row">
+                  <div className="message-avatar">
                     <Leaf size={17} />
+                  </div>
+                  <div className="message-bubble assistant-bubble typing">
+                    <Loader2 className="spin" size={16} />
+                    Analyzing...
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="examples">
+              {examples.map((example) => (
+                <button
+                  key={example}
+                  onClick={() => sendMessage(example)}
+                  disabled={loading}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+
+            <div
+              className="composer"
+              style={{ display: "flex", gap: "10px", alignItems: "center" }}
+            >
+              <label
+                style={{
+                  cursor: loading ? "not-allowed" : "pointer",
+                  padding: "8px",
+                  opacity: loading ? 0.5 : 1,
+                }}
+                title="Upload crop image"
+              >
+                <ImagePlus size={24} color="#666" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  disabled={loading}
+                  style={{ display: "none" }}
+                />
+              </label>
+
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type a customer message..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+
+              <button onClick={() => sendMessage()} disabled={loading}>
+                {loading ? (
+                  <Loader2 className="spin" size={19} />
+                ) : (
+                  <Send size={19} />
+                )}
+              </button>
+            </div>
+          </section>
+
+          <aside className="agent-panel">
+            <div className="panel-header">
+              <div>
+                <p>Agent Analysis</p>
+                <h3>
+                  {latestResult
+                    ? formatLabel(latestResult.intent)
+                    : "No case yet"}
+                </h3>
+              </div>
+              <span className={`risk-badge ${riskLevel}`}>{riskLevel}</span>
+            </div>
+
+            {!latestResult && (
+              <div className="empty-panel">
+                <Brain size={42} />
+                <h3>Waiting for a message</h3>
+                <p>
+                  Once a customer sends a message or uploads an image, the
+                  agent’s decision path will appear here.
+                </p>
+              </div>
+            )}
+
+            {latestResult && (
+              <>
+                <div className="metric-grid">
+                  <div className="metric-card">
+                    <Brain size={21} />
+                    <span>Intent</span>
+                    <strong>{formatLabel(latestResult.intent)}</strong>
+                  </div>
+
+                  <div className="metric-card">
+                    <ShieldCheck size={21} />
+                    <span>Risk</span>
+                    <strong>{latestResult.risk_level}</strong>
+                  </div>
+
+                  {latestResult.intent !== "image_diagnosis" && (
+                    <div className="metric-card">
+                      <CheckCircle2 size={21} />
+                      <span>Case saved</span>
+                      <strong>
+                        {latestResult.case_saved
+                          ? `Yes #${latestResult.case_id}`
+                          : "Not saved"}
+                      </strong>
+                    </div>
+                  )}
+
+                  {isOrderStatus ? (
+                    <>
+                      <div className="metric-card">
+                        <PackageSearch size={21} />
+                        <span>Order ID</span>
+                        <strong>
+                          {latestResult.order?.order_id || "Not found"}
+                        </strong>
+                      </div>
+
+                      <div className="metric-card">
+                        <Activity size={21} />
+                        <span>Status</span>
+                        <strong>
+                          {latestResult.order?.status || "Not available"}
+                        </strong>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="metric-card">
+                        <PackageSearch size={21} />
+                        <span>Product/Crop</span>
+                        <strong>
+                          {latestResult.recommended_product ||
+                            latestResult.detected_crop ||
+                            "None"}
+                        </strong>
+                      </div>
+
+                      <div className="metric-card">
+                        <Activity size={21} />
+                        <span>Escalation</span>
+                        <strong>
+                          {latestResult.escalation_required
+                            ? "Required"
+                            : "Not required"}
+                        </strong>
+                      </div>
+                    </>
                   )}
                 </div>
 
-                <div
-                  className={`message-bubble ${
-                    item.role === "user" ? "user-bubble" : "assistant-bubble"
-                  } ${item.error ? "error-bubble" : ""}`}
-                >
-                  <pre
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      fontFamily: "inherit",
-                      margin: 0,
-                    }}
-                  >
-                    {item.text}
-                  </pre>
-                </div>
-              </div>
-            ))}
-
-            {loading && (
-              <div className="message-row assistant-row">
-                <div className="message-avatar">
-                  <Leaf size={17} />
-                </div>
-                <div className="message-bubble assistant-bubble typing">
-                  <Loader2 className="spin" size={16} />
-                  Analyzing...
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="examples">
-            {examples.map((example) => (
-              <button
-                key={example}
-                onClick={() => sendMessage(example)}
-                disabled={loading}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-
-          <div
-            className="composer"
-            style={{ display: "flex", gap: "10px", alignItems: "center" }}
-          >
-            <label
-              style={{
-                cursor: loading ? "not-allowed" : "pointer",
-                padding: "8px",
-                opacity: loading ? 0.5 : 1,
-              }}
-              title="Upload crop image"
-            >
-              <ImagePlus size={24} color="#666" />
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                disabled={loading}
-                style={{ display: "none" }}
-              />
-            </label>
-
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type a customer message..."
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
-              style={{ flex: 1 }}
-            />
-
-            <button onClick={() => sendMessage()} disabled={loading}>
-              {loading ? (
-                <Loader2 className="spin" size={19} />
-              ) : (
-                <Send size={19} />
-              )}
-            </button>
-          </div>
-        </section>
-
-        <aside className="agent-panel">
-          <div className="panel-header">
-            <div>
-              <p>Agent Analysis</p>
-              <h3>
-                {latestResult ? formatLabel(latestResult.intent) : "No case yet"}
-              </h3>
-            </div>
-            <span className={`risk-badge ${riskLevel}`}>{riskLevel}</span>
-          </div>
-
-          {!latestResult && (
-            <div className="empty-panel">
-              <Brain size={42} />
-              <h3>Waiting for a message</h3>
-              <p>
-                Once a customer sends a message or uploads an image, the agent’s
-                decision path will appear here.
-              </p>
-            </div>
-          )}
-
-          {latestResult && (
-            <>
-              <div className="metric-grid">
-                <div className="metric-card">
-                  <Brain size={21} />
-                  <span>Intent</span>
-                  <strong>{formatLabel(latestResult.intent)}</strong>
-                </div>
-
-                <div className="metric-card">
-                  <ShieldCheck size={21} />
-                  <span>Risk</span>
-                  <strong>{latestResult.risk_level}</strong>
-                </div>
-
-                {latestResult.intent !== "image_diagnosis" && (
-                  <div className="metric-card">
-                    <CheckCircle2 size={21} />
-                    <span>Case saved</span>
-                    <strong>
-                      {latestResult.case_saved
-                        ? `Yes #${latestResult.case_id}`
-                        : "Not saved"}
-                    </strong>
-                  </div>
-                )}
-
-                {isOrderStatus ? (
-                  <>
-                    <div className="metric-card">
-                      <PackageSearch size={21} />
-                      <span>Order ID</span>
-                      <strong>{latestResult.order?.order_id || "Not found"}</strong>
-                    </div>
-
-                    <div className="metric-card">
-                      <Activity size={21} />
-                      <span>Status</span>
-                      <strong>
-                        {latestResult.order?.status || "Not available"}
-                      </strong>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="metric-card">
-                      <PackageSearch size={21} />
-                      <span>Product/Crop</span>
-                      <strong>
-                        {latestResult.recommended_product ||
-                          latestResult.detected_crop ||
-                          "None"}
-                      </strong>
-                    </div>
-
-                    <div className="metric-card">
-                      <Activity size={21} />
-                      <span>Escalation</span>
-                      <strong>
-                        {latestResult.escalation_required
-                          ? "Required"
-                          : "Not required"}
-                      </strong>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="decision-card">
-                <div className="decision-title">
-                  <CheckCircle2 size={18} />
-                  Current decision
-                </div>
-
-                {isOrderStatus ? (
-                  <>
-                    <p>
-                      <strong>Order found:</strong>{" "}
-                      {latestResult.order?.order_found ? "Yes" : "No"}
-                    </p>
-                    <p>
-                      <strong>ETA:</strong>{" "}
-                      {latestResult.order?.eta || "Not available"}
-                    </p>
-                    <p>
-                      <strong>Tracking number:</strong>{" "}
-                      {latestResult.order?.tracking_number || "Not available"}
-                    </p>
-                    <p>
-                      <strong>Reason:</strong>{" "}
-                      {latestResult.order?.reason ||
-                        "No lookup reason available"}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      <strong>Detected crop:</strong>{" "}
-                      {latestResult.detected_crop || "Not detected"}
-                    </p>
-                    <p>
-                      <strong>Detected issue:</strong>{" "}
-                      {latestResult.detected_issue || "Not detected"}
-                    </p>
-                    <p>
-                      <strong>Reason:</strong>{" "}
-                      {latestResult.product_reason ||
-                        "No product reason available"}
-                    </p>
-                  </>
-                )}
-              </div>
-
-              {latestResult.execution_trace &&
-                latestResult.execution_trace.length > 0 && (
+                {latestResult.updated_customer_profile && (
                   <div className="decision-card">
                     <div className="decision-title">
-                      <Activity size={18} />
-                      Agent execution trace
+                      <UserRound size={18} />
+                      Customer memory
                     </div>
 
-                    {latestResult.execution_trace.map((step) => (
-                      <p key={step.step}>
-                        <strong>
-                          {step.step}. {step.task}:
-                        </strong>{" "}
-                        {step.status} — {step.result || "No result"}
-                      </p>
-                    ))}
+                    <p>
+                      <strong>Profile:</strong>{" "}
+                      {latestResult.updated_customer_profile.profile_summary ||
+                        "No summary available"}
+                    </p>
+
+                    <p>
+                      <strong>Segment:</strong>{" "}
+                      {latestResult.updated_customer_profile.customer_segment ||
+                        "Regular"}
+                    </p>
+
+                    <p>
+                      <strong>Crops:</strong>{" "}
+                      {(latestResult.updated_customer_profile.crops || []).join(
+                        ", "
+                      ) || "Not available"}
+                    </p>
                   </div>
                 )}
 
-              {latestResult.risk_level === "high" && (
-                <div className="warning-card">
-                  <AlertTriangle size={20} />
-                  <div>
-                    <strong>High-risk case</strong>
-                    <p>
-                      This case should be escalated to a human expert before
-                      giving further instructions.
-                    </p>
+                <div className="decision-card">
+                  <div className="decision-title">
+                    <CheckCircle2 size={18} />
+                    Current decision
                   </div>
-                </div>
-              )}
 
-              {latestResult.escalation_required &&
-                latestResult.risk_level !== "high" && (
+                  {isOrderStatus ? (
+                    <>
+                      <p>
+                        <strong>Order found:</strong>{" "}
+                        {latestResult.order?.order_found ? "Yes" : "No"}
+                      </p>
+                      <p>
+                        <strong>ETA:</strong>{" "}
+                        {latestResult.order?.eta || "Not available"}
+                      </p>
+                      <p>
+                        <strong>Tracking number:</strong>{" "}
+                        {latestResult.order?.tracking_number ||
+                          "Not available"}
+                      </p>
+                      <p>
+                        <strong>Reason:</strong>{" "}
+                        {latestResult.order?.reason ||
+                          "No lookup reason available"}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        <strong>Detected crop:</strong>{" "}
+                        {latestResult.detected_crop || "Not detected"}
+                      </p>
+                      <p>
+                        <strong>Detected issue:</strong>{" "}
+                        {latestResult.detected_issue || "Not detected"}
+                      </p>
+                      <p>
+                        <strong>Reason:</strong>{" "}
+                        {latestResult.product_reason ||
+                          "No product reason available"}
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {latestResult.execution_trace &&
+                  latestResult.execution_trace.length > 0 && (
+                    <div className="decision-card">
+                      <div className="decision-title">
+                        <Activity size={18} />
+                        Agent execution trace
+                      </div>
+
+                      {latestResult.execution_trace.map((step) => (
+                        <p key={step.step}>
+                          <strong>
+                            {step.step}. {step.task}:
+                          </strong>{" "}
+                          {step.status} — {step.result || "No result"}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                {latestResult.risk_level === "high" && (
                   <div className="warning-card">
                     <AlertTriangle size={20} />
                     <div>
-                      <strong>Human review recommended</strong>
+                      <strong>High-risk case</strong>
                       <p>
-                        This case is safety-sensitive or uncertain, so a human
-                        expert should review it.
+                        This case should be escalated to a human expert before
+                        giving further instructions.
                       </p>
                     </div>
                   </div>
                 )}
 
-              <details className="json-card">
-                <summary>Raw backend JSON</summary>
-                <pre>{JSON.stringify(latestResult, null, 2)}</pre>
-              </details>
-            </>
-          )}
-        </aside>
-      </main>
+                {latestResult.escalation_required &&
+                  latestResult.risk_level !== "high" && (
+                    <div className="warning-card">
+                      <AlertTriangle size={20} />
+                      <div>
+                        <strong>Human review recommended</strong>
+                        <p>
+                          This case is safety-sensitive or uncertain, so a human
+                          expert should review it.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                <details className="json-card">
+                  <summary>Raw backend JSON</summary>
+                  <pre>{JSON.stringify(latestResult, null, 2)}</pre>
+                </details>
+              </>
+            )}
+          </aside>
+        </main>
+      )}
     </div>
   );
 }
