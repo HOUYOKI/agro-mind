@@ -1,6 +1,6 @@
 from langsmith import Client
 from datetime import datetime
-import os
+
 
 client = Client()
 
@@ -10,14 +10,13 @@ def log_important_case(
     message,
     intent,
     risk_level,
-    escalation_required,
-    payload=None
+    escalation_required
 ):
 
     try:
 
         client.create_run(
-            name="agro_mind_important_case",
+            name="important_agro_case",
             run_type="chain",
 
             inputs={
@@ -26,12 +25,11 @@ def log_important_case(
                 "intent": intent,
                 "risk_level": risk_level,
                 "escalation_required": escalation_required,
-                "timestamp": str(datetime.utcnow())
+                "time": str(datetime.utcnow())
             },
 
             outputs={
-                "case_logged": True,
-                "payload": payload or {}
+                "logged": True
             }
         )
 
