@@ -19,6 +19,8 @@ import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000/chat";
 const DIAGNOSE_URL = "http://127.0.0.1:8000/diagnose";
+const HUMAN_ESCALATION_URL = "http://127.0.0.1:8000/human-escalation";
+const ESCALATIONS_URL = "http://127.0.0.1:8000/escalations";
 
 const examples = [
   "My tomato leaves have yellow spots. What should I use?",
@@ -31,7 +33,7 @@ const examples = [
 
 function formatLabel(value) {
   if (!value) return "Not available";
-  return value.replaceAll("_", " ");
+  return String(value).replaceAll("_", " ");
 }
 
 function App() {
@@ -40,6 +42,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [latestResult, setLatestResult] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
+  const [showReviewQueue, setShowReviewQueue] = useState(false);
+  const [escalations, setEscalations] = useState([]);
+  const [reviewNotes, setReviewNotes] = useState({});
 
   const [messages, setMessages] = useState([
     {
@@ -120,6 +125,7 @@ function App() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("customer_id", customerId);
 
     try {
       const response = await fetch(DIAGNOSE_URL, {
@@ -141,28 +147,71 @@ function App() {
 
       console.log("Diagnosis response:", data);
 
-      const confidence =
-        data.confidence > 1
+      const confidenceRaw =
+        typeof data.confidence === "number"
           ? data.confidence
-          : Math.round((data.confidence || 0) * 100);
+          : Number(data.confidence || 0);
+
+      const confidence =
+        confidenceRaw > 1
+          ? Math.round(confidenceRaw)
+          : Math.round(confidenceRaw * 100);
+
+      const symptoms = Array.isArray(data.symptoms)
+        ? data.symptoms.join(", ")
+        : data.symptoms || data.explanation || "Not available";
+
+      const customerFacingResponse =
+        data.response ||
+        data.customer_response ||
+        data.safe_response ||
+        data.recommendation ||
+        data.recommendation_hint ||
+        "No direct product recommendation was shown. Human review may be required.";
+
+      let recommendedProduct = null;
+
+      if (data.best_product) {
+        recommendedProduct =
+          data.best_product.product_name ||
+          data.best_product.product_name_en ||
+          data.best_product.name ||
+          null;
+      }
+
+      if (!recommendedProduct && Array.isArray(data.recommended_products)) {
+        recommendedProduct =
+          data.recommended_products[0]?.product_name ||
+          data.recommended_products[0]?.product_name_en ||
+          data.recommended_products[0]?.name ||
+          null;
+      }
 
       let responseText = `📷 Image Diagnosis Complete:\n\n`;
 
+      responseText += `Crop: ${
+        data.crop || data.detected_crop || "Unknown"
+      }\n\n`;
+
       responseText += `Disease: ${
-        data.disease || data.condition || "Unknown"
+        data.disease || data.condition || data.diagnosis || "Unknown"
       }\n\n`;
 
       responseText += `Confidence: ${confidence}%\n\n`;
 
       responseText += `Severity: ${data.severity || "Not available"}\n\n`;
 
-      responseText += `Symptoms: ${
-        data.explanation || "Not available"
-      }\n\n`;
+      responseText += `Symptoms: ${symptoms}\n\n`;
 
-      responseText += `Recommendation: ${
-        data.recommendation || "Not available"
-      }`;
+      responseText += `Recommendation: ${customerFacingResponse}`;
+
+      if (recommendedProduct) {
+        responseText += `\n\nSuggested product: ${recommendedProduct}`;
+      }
+
+      if (data.escalation_case_id) {
+        responseText += `\n\nHuman review case: ${data.escalation_case_id}`;
+      }
 
       const assistantMessage = {
         role: "assistant",
@@ -172,13 +221,27 @@ function App() {
       setMessages((prev) => [...prev, assistantMessage]);
 
       setLatestResult({
+        ...data,
         intent: "image_diagnosis",
-        risk_level: data.severity === "high" ? "high" : "low",
-        detected_crop: "From Image",
-        detected_issue: data.disease,
-        product_reason: data.recommendation_hint,
-        escalation_required: data.confidence < 0.6,
-        execution_trace: [
+        risk_level:
+          data.risk_level ||
+          (data.needs_human_review || data.human_review_required
+            ? "medium"
+            : "low"),
+        detected_crop: data.crop || data.detected_crop || "From Image",
+        detected_issue: data.disease || data.diagnosis || data.detected_issue,
+        recommended_product: recommendedProduct,
+        product_reason:
+          data.recommendation_hint ||
+          data.response ||
+          data.customer_response ||
+          "Image diagnosis completed.",
+        escalation_required: Boolean(
+          data.escalation_required ||
+            data.needs_human_review ||
+            data.human_review_required
+        ),
+        execution_trace: data.execution_trace || [
           {
             step: 1,
             task: "Upload crop image",
@@ -189,15 +252,15 @@ function App() {
             step: 2,
             task: "Run image diagnosis tool",
             status: "completed",
-            result: data.disease,
+            result: data.disease || data.diagnosis || "Diagnosis returned",
           },
           {
             step: 3,
             task: "Check confidence and escalation",
             status: "completed",
             result:
-              data.confidence < 0.6
-                ? "Human review recommended"
+              data.needs_human_review || data.human_review_required
+                ? "Human review required"
                 : "No immediate escalation",
           },
         ],
@@ -214,6 +277,97 @@ function App() {
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function goToHumanEscalation() {
+    try {
+      if (latestResult?.escalation_case_id) {
+        window.location.href = "/human_escalation.html";
+        return;
+      }
+
+      const response = await fetch(HUMAN_ESCALATION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          customer_id: customerId,
+          name: customerId,
+          phone: "",
+          issue:
+            latestResult?.detected_issue ||
+            latestResult?.intent ||
+            "User requested human escalation",
+          ai_response:
+            latestResult?.response ||
+            latestResult?.customer_response ||
+            latestResult?.safe_response ||
+            latestResult?.product_reason ||
+            "",
+          source: latestResult?.intent || "manual",
+        }),
+      });
+
+      const data = await response.json();
+
+      setLatestResult((prev) => ({
+        ...(prev || {}),
+        human_review_required: true,
+        escalation_required: true,
+        escalation_case_id: data.escalation_case_id,
+        updated_customer_profile:
+          data.updated_customer_profile || prev?.updated_customer_profile,
+      }));
+
+      window.location.href = "/human_escalation.html";
+    } catch (error) {
+      console.error("Human escalation failed:", error);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          error: true,
+          text: "Human escalation failed. Please make sure the backend is running.",
+        },
+      ]);
+    }
+  }
+
+  async function loadEscalations() {
+    try {
+      const response = await fetch(`${ESCALATIONS_URL}?status=pending`);
+      const data = await response.json();
+      setEscalations(data.items || []);
+    } catch (error) {
+      console.error("Failed to load escalations:", error);
+    }
+  }
+
+  async function markReviewed(caseId) {
+    try {
+      await fetch(`http://127.0.0.1:8000/escalations/${caseId}/review`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reviewer_note:
+            reviewNotes[caseId] || "Reviewed from Agro-Mind UI",
+        }),
+      });
+
+      setReviewNotes((prev) => ({
+        ...prev,
+        [caseId]: "",
+      }));
+
+      await loadEscalations();
+    } catch (error) {
+      console.error("Failed to mark escalation reviewed:", error);
     }
   }
 
@@ -237,12 +391,20 @@ function App() {
         response += `\n\nCase saved: Yes #${data.case_id}`;
       }
 
+      if (data.escalation_case_id) {
+        response += `\nHuman review case: ${data.escalation_case_id}`;
+      }
+
       return response;
     }
 
-    if (data.intent === "pesticide_safety" || data.risk_level === "high") {
+    if (
+      data.intent === "pesticide_safety" ||
+      data.risk_level === "high" ||
+      data.escalation_required
+    ) {
       response +=
-        "This looks like a safety-sensitive case. Please avoid applying or consuming anything until a human expert reviews it.\n\n";
+        "This looks like a safety-sensitive or uncertain case. A human expert should review it before further action.\n\n";
     }
 
     if (data.detected_crop || data.detected_issue) {
@@ -265,6 +427,10 @@ function App() {
 
     if (data.case_saved) {
       response += `\nCase saved: Yes #${data.case_id}`;
+    }
+
+    if (data.escalation_case_id) {
+      response += `\nHuman review case: ${data.escalation_case_id}`;
     }
 
     return response;
@@ -297,7 +463,10 @@ function App() {
           }}
         >
           <button
-            onClick={() => setShowProfiles((prev) => !prev)}
+            onClick={() => {
+              setShowReviewQueue(false);
+              setShowProfiles((prev) => !prev);
+            }}
             style={{
               border: "1px solid rgba(255,255,255,0.2)",
               borderRadius: "999px",
@@ -310,6 +479,24 @@ function App() {
             {showProfiles ? "Back to Chat" : "Customer Profiles"}
           </button>
 
+          <button
+            onClick={async () => {
+              setShowProfiles(false);
+              setShowReviewQueue((prev) => !prev);
+              await loadEscalations();
+            }}
+            style={{
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: "999px",
+              padding: "8px 12px",
+              cursor: "pointer",
+              background: "rgba(255,255,255,0.08)",
+              color: "inherit",
+            }}
+          >
+            {showReviewQueue ? "Back to Chat" : "Human Review"}
+          </button>
+
           <div className="system-status">
             <span></span>
             Live agent pipeline
@@ -319,6 +506,95 @@ function App() {
 
       {showProfiles ? (
         <CustomerProfile />
+      ) : showReviewQueue ? (
+        <main className="review-layout">
+          <section className="review-panel">
+            <div className="panel-header">
+              <div>
+                <p>Human-in-the-Loop</p>
+                <h3>Human Review Queue</h3>
+              </div>
+
+              <button className="human-escalation-btn" onClick={loadEscalations}>
+                Refresh Queue
+              </button>
+            </div>
+
+            {escalations.length === 0 ? (
+              <div className="empty-panel">
+                <AlertTriangle size={42} />
+                <h3>No pending cases</h3>
+                <p>
+                  Escalated pesticide, complaint, and low-confidence diagnosis
+                  cases will appear here.
+                </p>
+              </div>
+            ) : (
+              escalations.map((item) => (
+                <div key={item.case_id} className="review-card">
+                  <div className="review-card-header">
+                    <h3>{item.case_id}</h3>
+                    <span>{item.status}</span>
+                  </div>
+
+                  <p>
+                    <strong>Customer:</strong> {item.customer_id}
+                  </p>
+
+                  <p>
+                    <strong>User message:</strong>{" "}
+                    {item.user_message ||
+                      item.payload?.received_message ||
+                      item.payload?.message ||
+                      item.payload?.issue ||
+                      item.payload?.payload?.issue ||
+                      "Not saved."}
+                  </p>
+
+                  <p>
+                    <strong>Type:</strong> {formatLabel(item.type)}
+                  </p>
+
+                  <p>
+                    <strong>Source:</strong> {item.source}
+                  </p>
+
+                  <p>
+                    <strong>Reason:</strong> {item.reason}
+                  </p>
+
+                  <p>
+                    <strong>AI Response:</strong>{" "}
+                    {item.ai_response || "No AI response saved."}
+                  </p>
+
+                  <textarea
+                    placeholder="Add human reviewer note..."
+                    value={reviewNotes[item.case_id] || ""}
+                    onChange={(e) =>
+                      setReviewNotes((prev) => ({
+                        ...prev,
+                        [item.case_id]: e.target.value,
+                      }))
+                    }
+                    style={{
+                      marginTop: "10px",
+                      minHeight: "80px",
+                      resize: "vertical",
+                    }}
+                  />
+
+                  <button
+                    className="human-escalation-btn"
+                    onClick={() => markReviewed(item.case_id)}
+                  >
+                    Mark Reviewed
+                  </button>
+                </div>
+              ))
+            )}
+          </section>
+        </main>
       ) : (
         <main className="main-layout">
           <section className="chat-card">
@@ -615,6 +891,12 @@ function App() {
                         {latestResult.product_reason ||
                           "No product reason available"}
                       </p>
+                      {latestResult.escalation_case_id && (
+                        <p>
+                          <strong>Human review case:</strong>{" "}
+                          {latestResult.escalation_case_id}
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
@@ -644,26 +926,39 @@ function App() {
                     <div>
                       <strong>High-risk case</strong>
                       <p>
-                        This case should be escalated to a human expert before
-                        giving further instructions.
+                        Human Review Required — this case has been flagged for
+                        agronomist or safety review.
                       </p>
                     </div>
                   </div>
                 )}
 
-                {latestResult.escalation_required &&
+                {(latestResult.escalation_required ||
+                  latestResult.needs_human_review ||
+                  latestResult.human_review_required) &&
                   latestResult.risk_level !== "high" && (
                     <div className="warning-card">
                       <AlertTriangle size={20} />
                       <div>
                         <strong>Human review recommended</strong>
                         <p>
-                          This case is safety-sensitive or uncertain, so a human
-                          expert should review it.
+                          Human Review Required — this case has been flagged for
+                          agronomist review.
                         </p>
                       </div>
                     </div>
                   )}
+
+                {(latestResult.escalation_required ||
+                  latestResult.needs_human_review ||
+                  latestResult.human_review_required) && (
+                  <button
+                    className="human-escalation-btn"
+                    onClick={goToHumanEscalation}
+                  >
+                    👨‍🌾 Contact Human Expert
+                  </button>
+                )}
 
                 <details className="json-card">
                   <summary>Raw backend JSON</summary>

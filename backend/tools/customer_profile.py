@@ -16,6 +16,8 @@ def _default_profile(customer_id: str) -> Dict[str, Any]:
         "recommended_products": [],
         "complaints_count": 0,
         "escalations_count": 0,
+        "human_escalation_requested": False,
+        "escalation_case_ids": [],
         "preferred_language": None,
         "last_interaction": None,
         "profile_summary": "",
@@ -106,6 +108,8 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     profile.setdefault("recommended_products", [])
     profile.setdefault("complaints_count", 0)
     profile.setdefault("escalations_count", 0)
+    profile.setdefault("human_escalation_requested", False)
+    profile.setdefault("escalation_case_ids", [])
     profile.setdefault("preferred_language", None)
     profile.setdefault("last_interaction", None)
     profile.setdefault("profile_summary", "")
@@ -129,15 +133,21 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     if update_data.get("last_intent") == "complaint":
         profile["complaints_count"] = int(profile.get("complaints_count", 0)) + 1
 
-    if update_data.get("escalation_required"):
-        profile["escalations_count"] = int(profile.get("escalations_count", 0)) + 1
+    if update_data.get("human_escalation_requested") or update_data.get("escalation_required"):
+        profile["human_escalation_requested"] = True
+
+    escalation_case_id = update_data.get("escalation_case_id")
+
+    if escalation_case_id:
+        if escalation_case_id not in profile["escalation_case_ids"]:
+            profile["escalation_case_ids"].append(escalation_case_id)
+            profile["escalations_count"] = int(profile.get("escalations_count", 0)) + 1
 
     profile["last_interaction"] = datetime.now().date().isoformat()
 
-    if not profile.get("profile_summary"):
-        crops = ", ".join(profile.get("crops", [])) or "unknown crops"
-        issues = ", ".join(profile.get("common_issues", [])) or "general support needs"
-        profile["profile_summary"] = f"Customer growing {crops} with {issues}."
+    crops = ", ".join(profile.get("crops", [])) or "unknown crops"
+    issues = ", ".join(profile.get("common_issues", [])) or "general support needs"
+    profile["profile_summary"] = f"Customer growing {crops} with {issues}."
 
     if profile["escalations_count"] > 0 or profile["complaints_count"] > 0:
         profile["customer_segment"] = "High Risk"
@@ -146,6 +156,10 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     elif len(profile["orders"]) >= 2:
         profile["customer_segment"] = "High Value"
         profile["upsell_opportunity"] = True
+
+    else:
+        profile["customer_segment"] = "Regular"
+        profile["upsell_opportunity"] = False
 
     save_customer_profile(customer_id, profile)
     return profile
@@ -174,6 +188,8 @@ Recommended products: {profile.get("recommended_products", [])}
 Orders: {profile.get("orders", [])}
 Complaints count: {profile.get("complaints_count", 0)}
 Escalations count: {profile.get("escalations_count", 0)}
+Human escalation requested: {profile.get("human_escalation_requested", False)}
+Escalation case IDs: {profile.get("escalation_case_ids", [])}
 Customer segment: {profile.get("customer_segment")}
 Upsell opportunity: {profile.get("upsell_opportunity")}
 Summary: {profile.get("profile_summary", "")}
