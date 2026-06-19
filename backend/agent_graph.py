@@ -14,6 +14,7 @@ from backend.tools.customer_profile import (
     update_customer_profile,
     summarize_customer_profile,
 )
+from backend.tools.langsmith_logger import log_important_case
 
 
 class AgroState(TypedDict, total=False):
@@ -22,6 +23,7 @@ class AgroState(TypedDict, total=False):
 
     intent: str
     safety_result: Dict[str, Any]
+    langsmith_logged: bool
     customer_profile: Optional[Dict[str, Any]]
     customer_profile_summary: str
 
@@ -37,7 +39,7 @@ class AgroState(TypedDict, total=False):
     updated_customer_profile: Dict[str, Any]
 
     execution_trace: List[Dict[str, Any]]
-
+    
 
 # ==========================================
 # DEFAULT TOOL OUTPUTS
@@ -140,6 +142,40 @@ def safety_check_node(state: AgroState) -> AgroState:
         task="Check safety risk",
         status="completed",
         result=safety_result["risk_level"],
+    )
+
+def langsmith_logging_node(state: AgroState) -> AgroState:
+    safety = state["safety_result"]
+    should_log = (
+        safety["risk_level"] in ["medium", "high"]
+        or safety["escalation_required"]
+        or state["intent"] == "complaint"
+    )
+    if should_log:
+        result = log_important_case(
+            customer_id=state["customer_id"],
+            message=state["message"],
+            intent=state["intent"],
+            risk_level=safety["risk_level"],
+            escalation_required=
+            safety["escalation_required"]
+        )
+        state["langsmith_logged"] = result
+
+    else:
+        state["langsmith_logged"] = False
+
+    return add_trace(
+        state,
+        step=4,
+        task="Log important case to LangSmith",
+        status="completed"
+        if should_log else "skipped",
+        result=(
+            "Case logged"
+            if should_log
+            else "Routine case - ignored"
+        )
     )
 
 
@@ -554,6 +590,7 @@ workflow = StateGraph(AgroState)
 workflow.add_node("load_customer_profile", load_customer_profile_node)
 workflow.add_node("classify_intent", classify_intent_node)
 workflow.add_node("check_safety", safety_check_node)
+workflow.add_node("langsmith_logging",langsmith_logging_node)
 workflow.add_node("init_defaults", init_defaults_node)
 workflow.add_node("product_and_rag", product_and_rag_node)
 workflow.add_node("order_lookup", order_lookup_node)
@@ -566,8 +603,9 @@ workflow.add_node("update_customer_profile", update_customer_profile_node)
 workflow.set_entry_point("load_customer_profile")
 
 workflow.add_edge("load_customer_profile", "classify_intent")
-workflow.add_edge("classify_intent", "check_safety")
-workflow.add_edge("check_safety", "init_defaults")
+workflow.add_edge("classify_intent","check_safety")
+workflow.add_edge("check_safety","langsmith_logging")
+workflow.add_edge("langsmith_logging","init_defaults")
 
 workflow.add_conditional_edges(
     "init_defaults",
@@ -632,4 +670,7 @@ def run_agro_graph(customer_id: str, message: str) -> Dict[str, Any]:
 
         "rag": result["rag_result"],
         "order": result["order_result"],
+
+        "langsmith_logged": result.get(
+        "langsmith_logged",False)
     }
