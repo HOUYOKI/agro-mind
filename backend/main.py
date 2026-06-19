@@ -15,7 +15,6 @@ from backend.tools.escalation_queue import (
     list_escalations,
     mark_escalation_reviewed,
 )
-from backend.tools.langsmith_logger import log_important_case
 
 
 app = FastAPI(
@@ -272,23 +271,7 @@ def chat(request: ChatRequest):
         customer_id=request.customer_id,
         message=request.message,
     )
-    # LANGSMITH IMPORTANT CASE LOGGING
-    should_log = bool(
-        result.get("risk_level") in ["medium", "high"]
-        or result.get("escalation_required")
-        or result.get("human_review_required")
-        or result.get("intent") == "complaint"
-    )
-    if should_log:
-        log_important_case(
-            customer_id=request.customer_id,
-            message=request.message,
-            intent=result.get("intent"),
-            risk_level=result.get("risk_level"),
-            escalation_required=
-                result.get("escalation_required", False),
-            payload=result
-        )
+    
     # Final safety cleanup:
     # If the graph produced a generic crop/food-safety response for a poison/self-harm message,
     # override it with a safer emergency-style response.
@@ -351,5 +334,6 @@ def chat(request: ChatRequest):
         except Exception as error:
             print("Customer profile chat escalation update failed:", error)
 
-    result["langsmith_logged"] = should_log
+    
+
     return result
