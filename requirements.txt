@@ -19,3 +19,5 @@ pyyaml
 python-dotenv
 numpy
 langgraph
+langsmith
+python-dotenv
