@@ -1,0 +1,1 @@
+invalid type: string "Product ID: PN0051\n产品ID: PN0051\n\nChinese Name: 10%高效氯氟氰菊酯\n产品名称: 10%高效氯氟氰菊酯\n\nEnglish Name: 10% Lambda-cyhalothrin EW\n英文名称: 10% Lambda-cyhalothrin EW\n\nCrops: 蔬菜, 棉花, 果树\n适用作物: 蔬菜, 棉花, 果树\n\nActive Ingredients: 高效氯氟氰菊酯10%\n有效成分: 高效氯氟氰菊酯10%", expected f64oo

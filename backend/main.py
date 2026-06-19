@@ -5,7 +5,7 @@ import shutil
 import os
 
 from backend.tools.case_memory import init_database
-from backend.tools.image_diagnosis import analyze_crop_image
+from backend.vision.diagnosis_tool import diagnose_crop_image
 from backend.tools.customer_profile import load_customers
 from backend.agent_graph import run_agro_graph
 
@@ -66,7 +66,7 @@ async def diagnose(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        result = analyze_crop_image(temp_file_path)
+        result = diagnose_crop_image(temp_file_path)
         return result
 
     finally:
