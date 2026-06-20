@@ -1,8 +1,8 @@
 """
-Standalone test for generate_response_node() fallback path.
+Standalone test for build_rule_based_response() fallback path.
 
-Forces ask_agro_mind() to raise so _build_customer_fallback_response() runs,
-then prints state["response"] for four scenarios and checks for debug label leaks.
+Calls build_rule_based_response() directly with nested AgroState structure
+for four scenarios and checks for debug label leaks in the returned string.
 
 Run from the project root:
     python scripts/test_fallback_responses.py
@@ -10,11 +10,10 @@ Run from the project root:
 
 import sys
 import os
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.agent_graph import generate_response_node
+from backend.agent_graph import build_rule_based_response
 
 # ── Labels that must never appear in customer-facing text ────────────────────
 DEBUG_LABELS = [
@@ -42,24 +41,35 @@ BASE = {
     "message": "test message",
     "intent": "general_question",
     "raw_intent": "general_question",
-    "risk_level": "low",
-    "safety_reason": "Safe.",
-    "escalation_required": False,
-    "human_review_required": False,
+    "safety_result": {
+        "risk_level": "low",
+        "reason": "Safe.",
+        "escalation_required": False,
+    },
+    "product_result": {
+        "recommended_product": None,
+        "product_id": None,
+        "reason": "No recommendation.",
+        "safety_note": None,
+        "detected_crop": None,
+        "detected_issue": None,
+        "confidence": 0.0,
+        "status": "skipped",
+    },
+    "order_result": {
+        "order_found": False,
+        "order_id": None,
+        "status": None,
+        "eta": None,
+        "tracking_number": None,
+        "reason": "Order lookup not needed.",
+    },
     "rag_result": {},
-    "product_result": {},
-    "order_result": {},
     "customer_profile_summary": "No profile.",
-    "response": "",
+    "response_text": "",
+    "ai_response": "",
     "llm_status": "not_started",
-    "recommended_product": None,
-    "product_id": None,
-    "product_reason": None,
-    "product_confidence": None,
-    "detected_crop": None,
-    "detected_issue": None,
-    "order_id": None,
-    "order_status": None,
+    "execution_trace": [],
 }
 
 SCENARIOS = [
@@ -70,10 +80,11 @@ SCENARIOS = [
             **BASE,
             "message": "I accidentally swallowed pesticide",
             "intent": "pesticide_safety",
-            "risk_level": "high",
-            "safety_reason": "High-risk pesticide ingestion detected.",
-            "escalation_required": True,
-            "human_review_required": True,
+            "safety_result": {
+                "risk_level": "high",
+                "reason": "High-risk pesticide ingestion detected.",
+                "escalation_required": True,
+            },
         },
     ),
     # ── 2. Order status ───────────────────────────────────────────────────────
@@ -83,9 +94,6 @@ SCENARIOS = [
             **BASE,
             "message": "Where is my order 1001?",
             "intent": "order_status",
-            "risk_level": "low",
-            "order_id": "1001",
-            "order_status": "in transit",
             "order_result": {
                 "order_found": True,
                 "order_id": "1001",
@@ -103,11 +111,6 @@ SCENARIOS = [
             **BASE,
             "message": "My tomato leaves have black spots",
             "intent": "crop_diagnosis",
-            "risk_level": "low",
-            "recommended_product": "Citrus Fungicide X",
-            "product_id": "P-001",
-            "detected_crop": ["tomato"],
-            "detected_issue": ["early blight"],
             "product_result": {
                 "recommended_product": "Citrus Fungicide X",
                 "product_id": "P-001",
@@ -127,14 +130,13 @@ SCENARIOS = [
             **BASE,
             "message": "Hello, I have a general question about farming.",
             "intent": "general_question",
-            "risk_level": "low",
         },
     ),
 ]
 
 
 def run_all():
-    print("\nForcing ask_agro_mind() to raise — testing fallback path only.\n")
+    print("\nCalling build_rule_based_response() directly — no LLM involved.\n")
     passed = 0
     failed = 0
 
@@ -143,16 +145,8 @@ def run_all():
         print(f"  {label}")
         print("=" * 70)
 
-        with patch(
-            "backend.agent_graph.ask_agro_mind",
-            side_effect=RuntimeError("LLM unavailable — forced for test"),
-        ):
-            result = generate_response_node(dict(state))
+        response = build_rule_based_response(dict(state))
 
-        response = result.get("response", "")
-        llm_status = result.get("llm_status", "")
-
-        print(f"llm_status : {llm_status}")
         print(f"\nresponse:\n  {response}\n")
 
         leaks = [lbl for lbl in DEBUG_LABELS if lbl in response]
@@ -161,11 +155,12 @@ def run_all():
             failed += 1
         else:
             print("  PASS — no debug labels detected")
+            passed += 1
 
         print()
 
     print("=" * 70)
-    print(f"Results: {passed + (len(SCENARIOS) - failed)} passed, {failed} failed out of {len(SCENARIOS)} scenarios")
+    print(f"Results: {passed} passed, {failed} failed out of {len(SCENARIOS)} scenarios")
     print("=" * 70)
 
 
