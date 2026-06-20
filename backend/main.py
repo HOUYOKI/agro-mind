@@ -271,7 +271,7 @@ def chat(request: ChatRequest):
         customer_id=request.customer_id,
         message=request.message,
     )
-
+    
     # Final safety cleanup:
     # If the graph produced a generic crop/food-safety response for a poison/self-harm message,
     # override it with a safer emergency-style response.
@@ -333,5 +333,7 @@ def chat(request: ChatRequest):
 
         except Exception as error:
             print("Customer profile chat escalation update failed:", error)
+
+    
 
     return result
