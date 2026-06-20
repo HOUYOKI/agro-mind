@@ -3,6 +3,12 @@ import time
 import ollama
 
 
+_LLM_TIMEOUT = 120  # seconds — CPU-only Ollama; typical crop_diagnosis ~60-150s
+# ollama 0.6.2 uses httpx internally; timeout is set at Client construction.
+# ollama.chat() uses a module-level Client(timeout=None) — no timeout at all.
+_llm_client = ollama.Client(timeout=_LLM_TIMEOUT)
+
+
 MODEL_NAME = "qwen2.5:7b-instruct"
 
 
@@ -35,16 +41,15 @@ def detect_language(text: str) -> str:
     return "English"
 
 
-def ask_agro_mind(user_message: str) -> str:
+def ask_agro_mind(user_message: str, original_user_message: str = None) -> str:
     """
-    LLM-first response generation.
-
-    Important:
-    This function does NOT return a rule-based fallback.
-    If Ollama/Qwen fails, it raises the error.
-    agent_graph.py is responsible for catching that error and using fallback only then.
+    user_message: full prompt with tool results, sent as the user-role message.
+    original_user_message: raw customer text used for language detection only,
+        so Chinese RAG/profile content in the prompt doesn't force Chinese responses.
+    Raises on failure — caller is responsible for fallback.
     """
-    language = detect_language(user_message)
+    language_source = original_user_message or user_message
+    language = detect_language(language_source)
     start = time.perf_counter()
 
     messages = [
@@ -67,7 +72,7 @@ def ask_agro_mind(user_message: str) -> str:
 
     try:
         try:
-            response = ollama.chat(
+            response = _llm_client.chat(
                 model=MODEL_NAME,
                 messages=messages,
                 options={
@@ -80,7 +85,7 @@ def ask_agro_mind(user_message: str) -> str:
 
         except TypeError:
             # Older ollama package versions may not support keep_alive.
-            response = ollama.chat(
+            response = _llm_client.chat(
                 model=MODEL_NAME,
                 messages=messages,
                 options={

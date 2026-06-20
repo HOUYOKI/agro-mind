@@ -492,12 +492,19 @@ CONTENT RULES:
     )
 
 
+def _to_csv(value):
+    """Convert a list to comma-separated string; pass str/None through unchanged."""
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value if v is not None) or None
+    return value
+
+
 def save_case_node(state: AgroState) -> AgroState:
     saved_case = save_case(
         customer_id=state["customer_id"],
         message=state["message"],
         intent=state["intent"],
-        possible_issue=state["product_result"].get("detected_issue"),
+        possible_issue=_to_csv(state["product_result"].get("detected_issue")),
         recommended_product=state["product_result"].get("recommended_product"),
         risk_level=state["safety_result"].get("risk_level", "low"),
         escalation_required=state["safety_result"].get("escalation_required", False),
