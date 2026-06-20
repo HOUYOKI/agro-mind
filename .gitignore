@@ -33,3 +33,12 @@ backend/data/chromadb_local/
 backend/rag_v3/data/
 backend/rag_v3/chromadb/
 backend/rag_v3/check_chroma.py
+
+# Local Python packages
+python_libs/
+
+# Vision Chroma database
+backend/vision_chromadb/
+
+# Training images
+backend/data/Agromind_Image/

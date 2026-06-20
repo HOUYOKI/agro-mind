@@ -1,14 +1,25 @@
 import ollama
-
+import re
+import time
 
 MODEL_NAME = "qwen2.5:7b-instruct"
 
 
+def detect_language(text: str) -> str:
+    if re.search(r"[\u0600-\u06FF]", text):
+        return "Arabic"
+
+    if re.search(r"[\u4E00-\u9FFF]", text):
+        return "Chinese"
+
+    return "English"
+
+
 def ask_agro_mind(user_message: str) -> str:
-    """
-    Sends a prepared prompt to the local Qwen model through Ollama
-    and returns the assistant's final customer-facing answer.
-    """
+
+    language = detect_language(user_message)
+
+    start = time.perf_counter()
 
     response = ollama.chat(
         model=MODEL_NAME,
@@ -16,19 +27,17 @@ def ask_agro_mind(user_message: str) -> str:
             {
                 "role": "system",
                 "content": (
-                    "You are Agro-Mind, a concise agricultural support chatbot. "
-                    "You do not write like a formal email. "
-                    "Do not say 'Dear customer', 'Hello C001', 'Best regards', or 'Agro-Mind Team'. "
-                    "Use a natural chatbot tone. "
-                    "Only use the provided tool results. "
-                    "Do not invent products, order details, prices, pesticide instructions, or diagnoses. "
-                    "If no exact product match exists, say that clearly. "
-                    "If a product is only a general support product, do not present it as a guaranteed solution. "
-                    "If escalation is required, clearly say a human expert should review or confirm the case. "
-                    "For pesticide, chemical, harvest, dosage, or food safety questions, avoid giving exact safety guarantees. "
-                    "Recommend checking the product label and consulting an expert when risk exists. "
-                    "Keep the answer short, clear, safe, and practical."
-                    "Never provide exact pesticide waiting periods, dosage amounts, or food safety guarantees unless they are explicitly provided in the tool results. "
+                    "You are Agro-Mind, an agricultural support assistant. "
+                    "Only use the information provided in tool outputs. "
+                    "Never invent products, diagnoses, dosages, prices, or shipping details. "
+                    "Keep answers concise, practical, and safe."
+                ),
+            },
+            {
+                "role": "system",
+                "content": (
+                    f"IMPORTANT: Respond ONLY in {language}. "
+                    "Never answer in any other language."
                 ),
             },
             {
@@ -36,6 +45,13 @@ def ask_agro_mind(user_message: str) -> str:
                 "content": user_message,
             },
         ],
+        options={
+            "temperature": 0.1,
+        },
     )
 
-    return response["message"]["content"]
+    elapsed = time.perf_counter() - start
+
+    print(f"\n🔥 OLLAMA RESPONSE TIME: {elapsed:.2f} sec")
+
+    return response["message"]["content"].strip()
