@@ -17,13 +17,19 @@ SYSTEM_PROMPT = (
     "If escalation is required, clearly say a human expert should review or confirm the case. "
     "For pesticide, chemical, harvest, dosage, or food safety questions, avoid exact guarantees. "
     "Never provide exact pesticide waiting periods, dosage amounts, dilution ratios, application intervals, "
-    "or food safety guarantees unless they are explicitly provided in the tool results. "
+    "number of applications, or food safety guarantees unless they are explicitly provided in the tool results. "
     "Recommend checking the product label and consulting an expert when risk exists. "
     "Keep the answer short, clear, safe, and practical."
 )
 
 
 def detect_language(text: str) -> str:
+    """
+    Detect the language of the customer's CURRENT message.
+
+    This should be used on the real customer message, not the full final prompt,
+    because the full prompt may contain Chinese RAG/product/profile text.
+    """
     text = text or ""
 
     if re.search(r"[\u0600-\u06FF]", text):
@@ -35,16 +41,24 @@ def detect_language(text: str) -> str:
     return "English"
 
 
-def ask_agro_mind(user_message: str) -> str:
+def ask_agro_mind(user_message: str, original_user_message: str = None) -> str:
     """
     LLM-first response generation.
 
-    Important:
-    This function does NOT return a rule-based fallback.
-    If Ollama/Qwen fails, it raises the error.
-    agent_graph.py is responsible for catching that error and using fallback only then.
+    user_message:
+        The full prompt sent to the LLM. It can include tool results, RAG, product data,
+        order data, and customer profile memory.
+
+    original_user_message:
+        The exact message typed by the customer.
+
+    Language must be detected from original_user_message, not user_message,
+    because user_message can contain Chinese RAG/profile/product metadata even when
+    the customer wrote in English.
     """
-    language = detect_language(user_message)
+    language_source = original_user_message or user_message
+    language = detect_language(language_source)
+
     start = time.perf_counter()
 
     messages = [
@@ -56,7 +70,10 @@ def ask_agro_mind(user_message: str) -> str:
             "role": "system",
             "content": (
                 f"Respond ONLY in {language}. "
-                "Never answer in another language."
+                "Never answer in another language. "
+                "The customer's current message controls the response language. "
+                "Ignore the language of retrieved product data, customer profile memory, "
+                "product names, Chinese metadata, and preferred_language."
             ),
         },
         {
@@ -77,9 +94,7 @@ def ask_agro_mind(user_message: str) -> str:
                 },
                 keep_alive="10m",
             )
-
         except TypeError:
-            # Older ollama package versions may not support keep_alive.
             response = ollama.chat(
                 model=MODEL_NAME,
                 messages=messages,
