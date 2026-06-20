@@ -1,51 +1,62 @@
+"""
+Product Recommender
+Connected directly to AgroMind RAG V3.
+"""
 
 import os
 import sys
 
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+backend_dir = os.path.dirname(current_dir)
+rag_v3_dir = os.path.join(backend_dir, "rag_v3")
 
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+if rag_v3_dir not in sys.path:
+    sys.path.insert(0, rag_v3_dir)
 
-try:
-    import retrieve_agronomy_knowledge_local as rag_local
-except ImportError:
-    from tools import retrieve_agronomy_knowledge_local as rag_local
+from src.retrieval_tool import AgroMindRetriever
+
+retriever = AgroMindRetriever()
+
 
 def recommend_product(message: str) -> dict:
     try:
-        results = rag_local.retrieve_agronomy_knowledge(message)
+        results = retriever.search(message, k=3)
+
+        if not results:
+            return {
+                "recommended_product": "Consult an agricultural expert",
+                "reason": "No matching products found in AgroMind knowledge base.",
+                "safety_note": "Please verify diagnosis before applying agricultural chemicals.",
+                "detected_crop": "Unknown",
+                "detected_issue": "Unknown"
+            }
+
+        doc, score = results[0]
+
+        metadata = getattr(doc, "metadata", {}) or {}
+
+        return {
+            "recommended_product": (
+                metadata.get("name_en")
+                or metadata.get("name_cn")
+                or "Unknown Product"
+            ),
+            "product_id": metadata.get("product_id"),
+            "reason": doc.page_content[:500],
+            "safety_note": (
+                "Always follow official dosage instructions "
+                "and safety precautions."
+            ),
+            "detected_crop": metadata.get("crops", []),
+            "detected_issue": metadata.get("diseases", []),
+            "score": float(score)
+        }
+
     except Exception as e:
         return {
             "recommended_product": "CRITICAL: RAG Engine Error",
-            "reason": f"An unexpected exception occurred inside 'retrieve_agronomy_knowledge_local.py'. Technical details: {str(e)}",
-            "safety_note": "DATABASE OFFLINE: Please check your vector database connections.",
-            "detected_crop": "Error State",
-            "detected_issue": "Error State"
+            "reason": str(e),
+            "safety_note": "Check AgroMind RAG V3 configuration.",
+            "detected_crop": "Error",
+            "detected_issue": "Error"
         }
-    
-    if results and len(results) > 0:
-        best_match = results[0].get('document', 'No explicit documentation found.')
-        product_name = results[0].get('product_name', 'Agricultural Solution')
-        detected_crop = results[0].get('detected_crop', 'Extracted from query')
-        detected_issue = results[0].get('detected_issue', 'Extracted from query')
-        
-        return {
-            "recommended_product": product_name,
-            "reason": best_match,
-            "safety_note": "Please strictly follow the professional dilution ratios and chemical safety guidelines in the official product manual.",
-            "detected_crop": detected_crop,
-            "detected_issue": detected_issue
-        }
-    
-    return {
-        "recommended_product": "Consult an agricultural expert",
-        "reason": "No relevant product or matching agronomic record was found in our database for this specific query.",
-        "safety_note": "Please check product label instructions and regional safety regulations before speculative use.",
-        "detected_crop": "Unknown",
-        "detected_issue": "Unknown"
-    }

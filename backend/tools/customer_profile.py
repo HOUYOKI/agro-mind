@@ -117,6 +117,7 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     profile.setdefault("upsell_opportunity", False)
 
     order_id = update_data.get("order_id")
+
     if order_id:
         order_exists = any(
             str(order.get("order_id")) == str(order_id)
@@ -126,14 +127,42 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
         if not order_exists:
             profile["orders"].append({"order_id": str(order_id)})
 
-    _append_unique(profile["crops"], update_data.get("crop"))
-    _append_unique(profile["common_issues"], update_data.get("possible_issue"))
-    _append_unique(profile["recommended_products"], update_data.get("recommended_product"))
+    # Handle crops (string or list)
+    crop_value = update_data.get("crop")
+
+    if isinstance(crop_value, list):
+        for crop in crop_value:
+            _append_unique(profile["crops"], crop)
+    else:
+        _append_unique(profile["crops"], crop_value)
+
+    # Handle issues (string or list)
+    issue_value = update_data.get("possible_issue")
+
+    if isinstance(issue_value, list):
+        for issue in issue_value:
+            _append_unique(profile["common_issues"], issue)
+    else:
+        _append_unique(profile["common_issues"], issue_value)
+
+    # Handle products (string or list)
+    product_value = update_data.get("recommended_product")
+
+    if isinstance(product_value, list):
+        for product in product_value:
+            _append_unique(profile["recommended_products"], product)
+    else:
+        _append_unique(profile["recommended_products"], product_value)
 
     if update_data.get("last_intent") == "complaint":
-        profile["complaints_count"] = int(profile.get("complaints_count", 0)) + 1
+        profile["complaints_count"] = (
+            int(profile.get("complaints_count", 0)) + 1
+        )
 
-    if update_data.get("human_escalation_requested") or update_data.get("escalation_required"):
+    if (
+        update_data.get("human_escalation_requested")
+        or update_data.get("escalation_required")
+    ):
         profile["human_escalation_requested"] = True
 
     escalation_case_id = update_data.get("escalation_case_id")
@@ -141,15 +170,29 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     if escalation_case_id:
         if escalation_case_id not in profile["escalation_case_ids"]:
             profile["escalation_case_ids"].append(escalation_case_id)
-            profile["escalations_count"] = int(profile.get("escalations_count", 0)) + 1
+
+            profile["escalations_count"] = (
+                int(profile.get("escalations_count", 0)) + 1
+            )
 
     profile["last_interaction"] = datetime.now().date().isoformat()
 
-    crops = ", ".join(profile.get("crops", [])) or "unknown crops"
-    issues = ", ".join(profile.get("common_issues", [])) or "general support needs"
-    profile["profile_summary"] = f"Customer growing {crops} with {issues}."
+    crops = ", ".join(
+        map(str, profile.get("crops", []))
+    ) or "unknown crops"
 
-    if profile["escalations_count"] > 0 or profile["complaints_count"] > 0:
+    issues = ", ".join(
+        map(str, profile.get("common_issues", []))
+    ) or "general support needs"
+
+    profile["profile_summary"] = (
+        f"Customer growing {crops} with {issues}."
+    )
+
+    if (
+        profile["escalations_count"] > 0
+        or profile["complaints_count"] > 0
+    ):
         profile["customer_segment"] = "High Risk"
         profile["upsell_opportunity"] = False
 
@@ -162,8 +205,8 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
         profile["upsell_opportunity"] = False
 
     save_customer_profile(customer_id, profile)
-    return profile
 
+    return profile
 
 def summarize_customer_profile(customer_id: str) -> str:
     """

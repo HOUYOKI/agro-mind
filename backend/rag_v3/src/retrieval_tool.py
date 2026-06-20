@@ -169,6 +169,12 @@ class AgroMindRetriever:
             "rust": ["锈病"],
             "rice blast": ["稻瘟病"],
             "scab": ["疮痂病"],
+            "leaf spot": ["叶斑病"],
+            "black spot": ["黑斑病", "叶斑病"],
+            "black spots": ["黑斑病", "叶斑病"],
+            "brown spot": ["褐斑病", "叶斑病"],
+            "brown spots": ["褐斑病", "叶斑病"],
+            "blight": ["疫病", "早晚疫病"],
         }
 
         pest_map = {
@@ -214,6 +220,14 @@ class AgroMindRetriever:
             "leaf curl": ["卷叶"],
             "spots": ["叶斑病"],
             "leaf spots": ["叶斑病"],
+            "black spot": ["黑斑病", "叶斑病"],
+            "black spots": ["黑斑病", "叶斑病"],
+            "brown spot": ["褐斑病", "叶斑病"],
+            "brown spots": ["褐斑病", "叶斑病"],
+            "leaf lesion": ["叶斑病"],
+            "leaf lesions": ["叶斑病"],
+            "dark spots": ["黑斑病", "叶斑病"],
+            "black patches": ["黑斑病"],
         }
 
         crops = []
@@ -256,13 +270,15 @@ class AgroMindRetriever:
         """
         terms = self._extract_structured_terms(query)
 
+
+
         if (
-            not terms["crops"]
-            and not terms["diseases"]
-            and not terms["pests"]
-            and not terms["symptoms"]
-        ):
-            return []
+           not terms["crops"]
+           and not terms["diseases"]
+           and not terms["pests"]
+           and not terms["symptoms"]
+       ):
+          return []
 
         scored_results = []
 
@@ -276,19 +292,19 @@ class AgroMindRetriever:
 
             for crop in terms["crops"]:
                 if crop in crops:
-                    score += 3
+                    score += 2
 
             for disease in terms["diseases"]:
                 if disease in diseases:
-                    score += 5
+                    score += 10
 
             for pest in terms["pests"]:
                 if pest in pests:
-                    score += 5
+                    score += 10
 
             for symptom in terms["symptoms"]:
                 if symptom in symptoms:
-                    score += 2
+                    score += 4
 
             if score > 0:
                 # Prefer products that actually target diseases/pests.
