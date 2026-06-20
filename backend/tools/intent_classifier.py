@@ -1,48 +1,35 @@
+import re
 import requests
 
 VALID_INTENTS = [
     "crop_diagnosis",
-    "product_question",
+    "vision_analysis",
+    "product_recommendation",
+    "product_information",
     "pesticide_safety",
     "order_status",
     "complaint",
+    "customer_profile",
+    "agriculture_knowledge",
     "general_question"
 ]
 
 INTENT_KEYWORDS = {
 
     "complaint": [
-        "complaint",
-        "refund",
-        "compensation",
-        "fake",
-        "scam",
-        "fraud",
-        "unhappy",
-        "disappointed",
+        "complaint", "refund", "compensation",
+        "fake", "scam", "fraud",
+        "bad product", "poor quality",
+        "defective",
+        "damaged my crops",
+        "damaged my plants",
+        "ruined my crops",
+        "killed my crops",
+        "burned my plants",
+        "angry",
         "not satisfied",
         "dissatisfied",
-        "bad product",
-        "poor quality",
-        "defective",
-        "issue with product",
-        "product issue",
-        "problem with my order",
-        "report a problem",
-        "report issue",
-        "angry",
-        "unacceptable",
-        "damaged my crops",
-        "damaged my crop",
-        "damaged my plants",
-        "damaged plants",
-        "ruined my crops",
-        "ruined my crop",
-        "killed my crops",
-        "killed my plants",
-        "burned my plants",
-        "caused losses",
-        "recommendation caused losses"
+        "caused losses"
     ],
 
     "pesticide_safety": [
@@ -50,46 +37,21 @@ INTENT_KEYWORDS = {
         "toxicity",
         "toxic",
         "poison",
+        "poisoning",
         "swallowed",
         "inhaled",
-        "breathed",
-        "eyes",
-        "eye",
-        "skin",
         "chemical exposure",
-        "after spraying",
-        "sprayed",
-        "eat after spraying",
-        "residue",
-        "spray residue",
-        "residue on food",
-        "dangerous",
+        "skin",
+        "eye",
+        "eyes",
         "safe to eat",
+        "eat after spraying",
         "food safety",
         "harvest interval",
         "reentry interval",
         "ppe",
         "gloves",
         "mask"
-    ],
-
-    "product_question": [
-        "product",
-        "recommend",
-        "recommendation",
-        "help",
-        "which product",
-        "what product",
-        "suggest",
-        "fungicide",
-        "fertilizer",
-        "dosage",
-        "dose",
-        "dilution",
-        "ingredient",
-        "mix",
-        "how much",
-        "how many ml"
     ],
 
     "order_status": [
@@ -101,29 +63,94 @@ INTENT_KEYWORDS = {
         "delivered",
         "package",
         "eta",
-        "where is my order",
-        "track my order"
+        "track my order",
+        "where is my order"
+    ],
+
+    "vision_analysis": [
+        "image",
+        "photo",
+        "picture",
+        "upload image",
+        "analyze image",
+        "analyze this image",
+        "leaf image",
+        "plant image",
+        "uploaded image",
+        "see this image"
+    ],
+
+    "customer_profile": [
+        "my profile",
+        "customer profile",
+        "previous orders",
+        "my orders",
+        "order history",
+        "support history",
+        "my history",
+        "my account"
+    ],
+
+    "product_information": [
+        "ingredient",
+        "ingredients",
+        "product information",
+        "label",
+        "active ingredient",
+        "dosage",
+        "dose",
+        "dilution",
+        "mix",
+        "how many ml",
+        "how much"
+    ],
+
+    "product_recommendation": [
+        "recommend",
+        "recommendation",
+        "suggest",
+        "which product",
+        "what product",
+        "best product",
+        "fungicide",
+        "fertilizer",
+        "pesticide product"
     ],
 
     "crop_diagnosis": [
         "disease",
         "symptom",
         "symptoms",
+        "diagnosis",
         "treatment",
-        "yellow leaves",
-        "yellowing",
         "leaf",
         "leaves",
+        "yellow leaves",
+        "yellowing",
         "spots",
+        "black spots",
+        "brown spots",
         "leaf spot",
         "blight",
+        "early blight",
+        "late blight",
+        "powdery mildew",
+        "downy mildew",
         "mildew",
         "fungus",
         "fungal",
         "rot",
+        "root rot",
         "wilt",
         "wilting",
+        "aphid",
+        "aphids",
+        "whitefly",
+        "whiteflies",
+        "thrips",
+        "spider mites",
         "pest",
+        "pests",
         "tomato",
         "pepper",
         "cucumber",
@@ -131,7 +158,22 @@ INTENT_KEYWORDS = {
         "citrus",
         "grape",
         "apple",
+        "strawberry",
         "crop"
+    ],
+
+    "agriculture_knowledge": [
+        "what causes",
+        "how does",
+        "why does",
+        "best practice",
+        "agriculture",
+        "farming",
+        "irrigation",
+        "soil",
+        "nutrient",
+        "fertility",
+        "crop management"
     ]
 }
 
@@ -142,21 +184,16 @@ def qwen_fallback(user_query: str) -> str:
 Classify the user query into exactly one label.
 
 Valid labels:
-crop_diagnosis
-product_question
-pesticide_safety
-order_status
-complaint
-general_question
+{chr(10).join(VALID_INTENTS)}
 
 User Query:
 {user_query}
 
-Output only one label.
+Output ONLY one label.
 """
 
     payload = {
-        "model": "qwen2.5:7b",
+        "model": "qwen2.5:7b-instruct",
         "prompt": prompt,
         "stream": False,
         "options": {
@@ -169,7 +206,7 @@ Output only one label.
         response = requests.post(
             "http://127.0.0.1:11434/api/generate",
             json=payload,
-            timeout=15
+            timeout=10
         )
 
         if response.status_code == 200:
@@ -192,18 +229,26 @@ Output only one label.
 def classify_intent(user_query: str) -> str:
 
     query = user_query.lower().strip()
+    query = re.sub(r"\s+", " ", query)
 
-    scores = {
-        "crop_diagnosis": 0,
-        "product_question": 0,
-        "pesticide_safety": 0,
-        "order_status": 0,
-        "complaint": 0
-    }
+    # High-priority intents
 
-    for intent, keywords in INTENT_KEYWORDS.items():
+    if any(k in query for k in INTENT_KEYWORDS["complaint"]):
+        return "complaint"
 
-        for keyword in keywords:
+    if any(k in query for k in INTENT_KEYWORDS["pesticide_safety"]):
+        return "pesticide_safety"
+
+    scores = {}
+
+    for intent in VALID_INTENTS:
+
+        if intent == "general_question":
+            continue
+
+        scores[intent] = 0
+
+        for keyword in INTENT_KEYWORDS.get(intent, []):
 
             if keyword in query:
                 scores[intent] += 1
@@ -214,3 +259,24 @@ def classify_intent(user_query: str) -> str:
         return best_intent
 
     return qwen_fallback(user_query)
+
+
+if __name__ == "__main__":
+
+    tests = [
+        "My tomato leaves have black spots",
+        "Analyze this image of my tomato plant",
+        "Recommend a fungicide for citrus canker",
+        "What are the ingredients of Kairun?",
+        "Is it safe to eat tomatoes after spraying?",
+        "Where is my order?",
+        "I want a refund",
+        "Show my previous orders",
+        "What causes powdery mildew?",
+        "Hello"
+    ]
+
+    for t in tests:
+        print(t)
+        print("->", classify_intent(t))
+        print("-" * 50)
