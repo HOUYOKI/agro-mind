@@ -1,3 +1,7 @@
+
+import time
+from backend.agent_graph import run_agro_graph
+
 TEST_CASES = [
 
     # ==================================================
@@ -80,3 +84,108 @@ TEST_CASES = [
 
     {"query":"Your recommendation caused losses","expected_intent":"complaint","expect_product":False,"expect_rag":False,"expect_escalation":True},
 ]
+
+
+def run_system_benchmark():
+
+    total = len(TEST_CASES)
+
+    intent_correct_count = 0
+    product_correct_count = 0
+    rag_correct_count = 0
+    escalation_correct_count = 0
+    successful_cases = 0
+
+    latencies = []
+
+    print("\n" + "=" * 80)
+    print("AGRO-MIND FULL SYSTEM BENCHMARK")
+    print("=" * 80)
+
+    for index, case in enumerate(TEST_CASES, start=1):
+
+        start_time = time.time()
+
+        result = run_agro_graph(
+            customer_id="BENCHMARK_USER",
+            message=case["query"]
+        )
+
+        latency = round(time.time() - start_time, 2)
+        latencies.append(latency)
+
+        intent_correct = (
+            result["intent"] == case["expected_intent"]
+        )
+
+        product_correct = (
+            bool(result["recommended_product"])
+            == case["expect_product"]
+        )
+
+        rag_correct = (
+            result["rag"]["found"]
+            == case["expect_rag"]
+        )
+
+        escalation_correct = (
+            result["escalation_required"]
+            == case["expect_escalation"]
+        )
+
+        if intent_correct:
+            intent_correct_count += 1
+
+        if product_correct:
+            product_correct_count += 1
+
+        if rag_correct:
+            rag_correct_count += 1
+
+        if escalation_correct:
+            escalation_correct_count += 1
+
+        if (
+            intent_correct
+            and product_correct
+            and rag_correct
+            and escalation_correct
+        ):
+            successful_cases += 1
+
+        print(f"\n[Test {index}]")
+        print("Query:", case["query"])
+        print("Intent:", result["intent"])
+        print("Latency:", latency, "sec")
+
+    print("\n" + "=" * 80)
+    print("FINAL RESULTS")
+    print("=" * 80)
+
+    print(
+        f"Intent Accuracy: {(intent_correct_count/total)*100:.2f}%"
+    )
+
+    print(
+        f"Product Accuracy: {(product_correct_count/total)*100:.2f}%"
+    )
+
+    print(
+        f"RAG Accuracy: {(rag_correct_count/total)*100:.2f}%"
+    )
+
+    print(
+        f"Escalation Accuracy: {(escalation_correct_count/total)*100:.2f}%"
+    )
+
+    print(
+        f"System Accuracy: {(successful_cases/total)*100:.2f}%"
+    )
+
+    print(
+        f"Average Latency: {sum(latencies)/len(latencies):.2f} sec"
+    )
+
+
+if __name__ == "__main__":
+    run_system_benchmark()
