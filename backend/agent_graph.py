@@ -295,45 +295,37 @@ def build_rule_based_response(state: AgroState) -> str:
     product_result = state["product_result"]
     order_result = state["order_result"]
 
-    response_text = (
-        f"Intent: {intent}\n\n"
-        f"Risk level: {safety_result['risk_level']}\n"
-        f"Safety reason: {safety_result['reason']}\n\n"
-    )
+    response_text = ""
 
     if product_result["recommended_product"]:
-        response_text += (
-            f"Detected crop: {product_result['detected_crop']}\n"
-            f"Possible issue: {product_result['detected_issue']}\n"
-            f"Possible product: {product_result['recommended_product']}\n"
-            f"Product reason: {product_result['reason']}\n"
-            f"Safety note: {product_result['safety_note']}\n\n"
-            "Important: Please confirm the diagnosis before applying any pesticide."
+        response_text = (
+            f"{product_result['recommended_product']} may be a relevant option based on "
+            "your message. Please confirm the diagnosis with a qualified agricultural expert "
+            "before applying any treatment, and follow all instructions on the official product label."
         )
 
     elif intent != "order_status":
         if safety_result["escalation_required"]:
-            response_text += (
-                "This case should be reviewed by a human support or agronomy expert."
+            response_text = (
+                "Your message has been flagged for review by our support team. "
+                "A human expert will follow up with you to help address this case."
             )
         else:
-            response_text += "No product recommendation was made for this message."
+            response_text = (
+                "We were not able to find a specific recommendation for your message. "
+                "Please contact our support team directly for further assistance."
+            )
 
     if intent == "order_status":
         if order_result["order_found"]:
-            response_text += (
-                f"Order status:\n"
-                f"Order ID: {order_result['order_id']}\n"
-                f"Status: {order_result['status']}\n"
-                f"ETA: {order_result['eta']}\n"
-                f"Tracking number: {order_result['tracking_number']}\n"
-                f"Lookup reason: {order_result['reason']}"
-            )
-        else:
-            response_text += (
-                f"Order status:\n"
+            response_text = (
+                f"Your order {order_result['order_id']} is currently {order_result['status']}. "
+                f"Estimated arrival: {order_result['eta']}. "
+                f"Tracking number: {order_result['tracking_number']}. "
                 f"{order_result['reason']}"
             )
+        else:
+            response_text = order_result["reason"]
 
     return response_text
 
