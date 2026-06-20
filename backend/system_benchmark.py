@@ -1,93 +1,245 @@
-
 import time
 from backend.agent_graph import run_agro_graph
 
-TEST_CASES = [
 
+TEST_CASES = [
     # ==================================================
     # Crop Diagnosis (10)
     # ==================================================
-
-    {"query":"My tomato leaves have black spots","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My cucumber plants have leaf spots","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My strawberry plants have powdery mildew","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My pepper leaves are turning yellow","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My rice crop has disease symptoms","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My citrus tree has root rot","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My grape leaves have mildew","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My watermelon plants are wilting","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My garlic plants have fungal disease","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"My apple tree has leaf disease","expected_intent":"crop_diagnosis","expect_product":True,"expect_rag":True,"expect_escalation":False},
+    {
+        "query": "My tomato leaves have black spots",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My cucumber plants have leaf spots",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My strawberry plants have powdery mildew",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My pepper leaves are turning yellow",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My rice crop has disease symptoms",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My citrus tree has root rot",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My grape leaves have mildew",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My watermelon plants are wilting",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My garlic plants have fungal disease",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "My apple tree has leaf disease",
+        "expected_intent": "crop_diagnosis",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
 
     # ==================================================
     # Product Questions (5)
     # ==================================================
-
-    {"query":"Which product helps tomato diseases?","expected_intent":"product_question","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"Recommend a product for powdery mildew","expected_intent":"product_question","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"What product can help leaf spot disease?","expected_intent":"product_question","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"Which fungicide is suitable for tomatoes?","expected_intent":"product_question","expect_product":True,"expect_rag":True,"expect_escalation":False},
-
-    {"query":"Suggest a product for crop disease management","expected_intent":"product_question","expect_product":True,"expect_rag":True,"expect_escalation":False},
+    {
+        "query": "Which product helps tomato diseases?",
+        "expected_intent": "product_question",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "Recommend a product for powdery mildew",
+        "expected_intent": "product_question",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "What product can help leaf spot disease?",
+        "expected_intent": "product_question",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "Which fungicide is suitable for tomatoes?",
+        "expected_intent": "product_question",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
+    {
+        "query": "Suggest a product for crop disease management",
+        "expected_intent": "product_question",
+        "expect_product": True,
+        "expect_rag": True,
+        "expect_escalation": False,
+    },
 
     # ==================================================
     # Order Status (5)
     # ==================================================
-
-    {"query":"Where is order 1001?","expected_intent":"order_status","expect_product":False,"expect_rag":False,"expect_escalation":False},
-
-    {"query":"Track my order 1001","expected_intent":"order_status","expect_product":False,"expect_rag":False,"expect_escalation":False},
-
-    {"query":"What is the status of order 1001?","expected_intent":"order_status","expect_product":False,"expect_rag":False,"expect_escalation":False},
-
-    {"query":"Has my shipment arrived?","expected_intent":"order_status","expect_product":False,"expect_rag":False,"expect_escalation":False},
-
-    {"query":"I need tracking information for order 1001","expected_intent":"order_status","expect_product":False,"expect_rag":False,"expect_escalation":False},
+    {
+        "query": "Where is order 1001?",
+        "expected_intent": "order_status",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": False,
+    },
+    {
+        "query": "Track my order 1001",
+        "expected_intent": "order_status",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": False,
+    },
+    {
+        "query": "What is the status of order 1001?",
+        "expected_intent": "order_status",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": False,
+    },
+    {
+        "query": "Has my shipment arrived?",
+        "expected_intent": "order_status",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": False,
+    },
+    {
+        "query": "I need tracking information for order 1001",
+        "expected_intent": "order_status",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": False,
+    },
 
     # ==================================================
     # Pesticide Safety (5)
     # ==================================================
-
-    {"query":"I accidentally swallowed pesticide","expected_intent":"pesticide_safety","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"Pesticide got into my eyes","expected_intent":"pesticide_safety","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"I inhaled pesticide spray","expected_intent":"pesticide_safety","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"Can I eat tomatoes after spraying pesticide?","expected_intent":"pesticide_safety","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"Is pesticide residue dangerous?","expected_intent":"pesticide_safety","expect_product":False,"expect_rag":False,"expect_escalation":True},
+    {
+        "query": "I accidentally swallowed pesticide",
+        "expected_intent": "pesticide_safety",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "Pesticide got into my eyes",
+        "expected_intent": "pesticide_safety",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "I inhaled pesticide spray",
+        "expected_intent": "pesticide_safety",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "Can I eat tomatoes after spraying pesticide?",
+        "expected_intent": "pesticide_safety",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "Is pesticide residue dangerous?",
+        "expected_intent": "pesticide_safety",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
 
     # ==================================================
     # Complaints (5)
     # ==================================================
-
-    {"query":"Your product ruined my crops","expected_intent":"complaint","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"I am unhappy with your product","expected_intent":"complaint","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"This fertilizer damaged my plants","expected_intent":"complaint","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"I want to report a problem with my order","expected_intent":"complaint","expect_product":False,"expect_rag":False,"expect_escalation":True},
-
-    {"query":"Your recommendation caused losses","expected_intent":"complaint","expect_product":False,"expect_rag":False,"expect_escalation":True},
+    {
+        "query": "Your product ruined my crops",
+        "expected_intent": "complaint",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "I am unhappy with your product",
+        "expected_intent": "complaint",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "This fertilizer damaged my plants",
+        "expected_intent": "complaint",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "I want to report a problem with my order",
+        "expected_intent": "complaint",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
+    {
+        "query": "Your recommendation caused losses",
+        "expected_intent": "complaint",
+        "expect_product": False,
+        "expect_rag": False,
+        "expect_escalation": True,
+    },
 ]
 
 
-def run_system_benchmark():
+def _safe_bool(value) -> bool:
+    return bool(value)
 
+
+def run_system_benchmark():
     total = len(TEST_CASES)
 
     intent_correct_count = 0
@@ -103,33 +255,46 @@ def run_system_benchmark():
     print("=" * 80)
 
     for index, case in enumerate(TEST_CASES, start=1):
-
         start_time = time.time()
 
-        result = run_agro_graph(
-            customer_id="BENCHMARK_USER",
-            message=case["query"]
-        )
+        try:
+            result = run_agro_graph(
+                customer_id="BENCHMARK_USER",
+                message=case["query"],
+            )
+
+        except Exception as error:
+            latency = round(time.time() - start_time, 2)
+            latencies.append(latency)
+
+            print(f"\n[Test {index}]")
+            print("Query:", case["query"])
+            print("ERROR:", error)
+            print("Latency:", latency, "sec")
+            continue
 
         latency = round(time.time() - start_time, 2)
         latencies.append(latency)
 
-        intent_correct = (
-            result["intent"] == case["expected_intent"]
-        )
+        intent = result.get("intent")
+        recommended_product = result.get("recommended_product")
+        rag_found = bool(result.get("rag", {}).get("found", False))
+        escalation_required = bool(result.get("escalation_required", False))
+
+        intent_correct = intent == case["expected_intent"]
 
         product_correct = (
-            bool(result["recommended_product"])
+            bool(recommended_product)
             == case["expect_product"]
         )
 
         rag_correct = (
-            result["rag"]["found"]
+            rag_found
             == case["expect_rag"]
         )
 
         escalation_correct = (
-            result["escalation_required"]
+            escalation_required
             == case["expect_escalation"]
         )
 
@@ -145,45 +310,75 @@ def run_system_benchmark():
         if escalation_correct:
             escalation_correct_count += 1
 
-        if (
+        case_passed = (
             intent_correct
             and product_correct
             and rag_correct
             and escalation_correct
-        ):
+        )
+
+        if case_passed:
             successful_cases += 1
 
         print(f"\n[Test {index}]")
         print("Query:", case["query"])
-        print("Intent:", result["intent"])
+        print("Expected Intent:", case["expected_intent"])
+        print("Actual Intent:", intent)
+        print("Recommended Product:", recommended_product)
+        print("RAG Found:", rag_found)
+        print("Escalation Required:", escalation_required)
+        print("LLM Status:", result.get("llm_status"))
         print("Latency:", latency, "sec")
+        print("Passed:", case_passed)
+
+        if not case_passed:
+            print("Mismatch Details:")
+            print(" - Intent correct:", intent_correct)
+            print(" - Product correct:", product_correct)
+            print(" - RAG correct:", rag_correct)
+            print(" - Escalation correct:", escalation_correct)
+
+    average_latency = (
+        sum(latencies) / len(latencies)
+        if latencies
+        else 0
+    )
 
     print("\n" + "=" * 80)
     print("FINAL RESULTS")
     print("=" * 80)
 
+    print(f"Total Tests: {total}")
+    print(f"Passed Tests: {successful_cases}/{total}")
+
     print(
-        f"Intent Accuracy: {(intent_correct_count/total)*100:.2f}%"
+        f"Intent Accuracy: "
+        f"{(intent_correct_count / total) * 100:.2f}%"
     )
 
     print(
-        f"Product Accuracy: {(product_correct_count/total)*100:.2f}%"
+        f"Product Accuracy: "
+        f"{(product_correct_count / total) * 100:.2f}%"
     )
 
     print(
-        f"RAG Accuracy: {(rag_correct_count/total)*100:.2f}%"
+        f"RAG Accuracy: "
+        f"{(rag_correct_count / total) * 100:.2f}%"
     )
 
     print(
-        f"Escalation Accuracy: {(escalation_correct_count/total)*100:.2f}%"
+        f"Escalation Accuracy: "
+        f"{(escalation_correct_count / total) * 100:.2f}%"
     )
 
     print(
-        f"System Accuracy: {(successful_cases/total)*100:.2f}%"
+        f"System Accuracy: "
+        f"{(successful_cases / total) * 100:.2f}%"
     )
 
     print(
-        f"Average Latency: {sum(latencies)/len(latencies):.2f} sec"
+        f"Average Latency: "
+        f"{average_latency:.2f} sec"
     )
 
 

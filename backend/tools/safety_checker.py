@@ -3,128 +3,138 @@ import requests
 
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-OLLAMA_MODEL = os.getenv("AGRO_MIND_TEXT_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.getenv("AGRO_MIND_TEXT_MODEL", "qwen2.5:7b-instruct")
 
 
 def check_safety(user_query: str, intent: str) -> dict:
     """
     Safety checker for Agro-Mind.
 
-    Supported languages: English and Chinese.
-
     Priority:
-    1. Deterministic pesticide / poison / self-harm / complaint rules.
-    2. Qwen backup for unusual unsafe phrasing.
-    3. Safe default only after rule checks pass.
+    1. Deterministic high-risk checks.
+    2. Deterministic medium-risk checks.
+    3. Complaint checks.
+    4. Short Qwen fallback for unusual unsafe phrasing.
+    5. Safe default.
     """
     text = (user_query or "").lower().strip()
 
     high_risk_keywords = [
-    # Self-harm / poison
-    "eat poison",
-    "consume poison",
-    "drink poison",
-    "poison myself",
-    "harm myself",
-    "kill myself",
-    "suicide",
-    "self harm",
-    "self-harm",
+        # Self-harm / poison
+        "eat poison",
+        "consume poison",
+        "drink poison",
+        "poison myself",
+        "harm myself",
+        "kill myself",
+        "suicide",
+        "self harm",
+        "self-harm",
 
-    # Pesticide ingestion
-    "swallowed",
-    "drank pesticide",
-    "drink pesticide",
-    "ate pesticide",
-    "ingested",
-    "poison",
-    "poisoning",
+        # Pesticide ingestion
+        "swallowed",
+        "drank pesticide",
+        "drink pesticide",
+        "ate pesticide",
+        "ingested",
+        "poison",
+        "poisoning",
 
-    # Eye exposure
-    "pesticide in my eyes",
-    "pesticide in my eye",
-    "chemical in my eyes",
-    "chemical in my eye",
-    "pesticide got into my eyes",
-    "pesticide got into my eye",
-    "chemical got into my eyes",
-    "chemical got into my eye",
-    "got into my eyes",
-    "got into my eye",
-    "splashed into my eyes",
-    "splashed into my eye",
-    "eye exposure",
-    "eyes burning",
-    "eye burning",
+        # Eye exposure
+        "pesticide in my eyes",
+        "pesticide in my eye",
+        "chemical in my eyes",
+        "chemical in my eye",
+        "pesticide got into my eyes",
+        "pesticide got into my eye",
+        "chemical got into my eyes",
+        "chemical got into my eye",
+        "got into my eyes",
+        "got into my eye",
+        "splashed into my eyes",
+        "splashed into my eye",
+        "eye exposure",
+        "eyes burning",
+        "eye burning",
 
-    # Mouth exposure
-    "pesticide in my mouth",
-    "chemical in my mouth",
+        # Mouth exposure
+        "pesticide in my mouth",
+        "chemical in my mouth",
 
-    # Breathing exposure
-    "inhaled pesticide",
-    "inhaled chemical",
-    "breathed pesticide",
-    "breathed chemical",
-    "can't breathe",
-    "cannot breathe",
-    "difficulty breathing",
+        # Breathing exposure
+        "inhaled pesticide",
+        "inhaled chemical",
+        "breathed pesticide",
+        "breathed chemical",
+        "can't breathe",
+        "cannot breathe",
+        "difficulty breathing",
 
-    # Severe symptoms
-    "vomiting",
-    "dizzy",
-    "faint",
-    "unconscious",
-    "severe pain",
+        # Severe symptoms
+        "vomiting",
+        "dizzy",
+        "faint",
+        "unconscious",
+        "severe pain",
 
-    # Child / pet exposure
-    "child swallowed",
-    "baby swallowed",
-    "child drank",
-    "baby drank",
-    "pet ate",
-    "dog ate",
-    "cat ate",
-    "livestock ate",
-    "cow ate",
-    "goat ate",
-    "sheep ate",
+        # Child / pet / livestock exposure
+        "child swallowed",
+        "baby swallowed",
+        "child drank",
+        "baby drank",
+        "pet ate",
+        "dog ate",
+        "cat ate",
+        "livestock ate",
+        "cow ate",
+        "goat ate",
+        "sheep ate",
 
-    # Chinese
-    "误食",
-    "喝了农药",
-    "吞了农药",
-    "吃了农药",
-    "农药中毒",
-    "中毒",
-    "吃毒药",
-    "喝毒药",
-    "想吃毒药",
-    "想喝毒药",
-    "服毒",
-    "毒死自己",
-    "伤害自己",
-    "自杀",
-    "自残",
-    "农药进眼睛",
-    "农药进眼",
-    "化学品进眼睛",
-    "眼睛灼烧",
-    "吸入农药",
-    "吸入化学品",
-    "呼吸困难",
-    "不能呼吸",
-    "呕吐",
-    "头晕",
-    "昏迷",
-    "孩子喝了",
-    "儿童喝了",
-    "宝宝喝了",
-    "宠物吃了",
-    "狗吃了",
-    "猫吃了",
-    "牲畜吃了",
-]
+        # Chinese
+        "误食",
+        "喝了农药",
+        "吞了农药",
+        "吃了农药",
+        "农药中毒",
+        "中毒",
+        "吃毒药",
+        "喝毒药",
+        "想吃毒药",
+        "想喝毒药",
+        "服毒",
+        "毒死自己",
+        "伤害自己",
+        "自杀",
+        "自残",
+        "农药进眼睛",
+        "农药进眼",
+        "化学品进眼睛",
+        "眼睛灼烧",
+        "吸入农药",
+        "吸入化学品",
+        "呼吸困难",
+        "不能呼吸",
+        "呕吐",
+        "头晕",
+        "昏迷",
+        "孩子喝了",
+        "儿童喝了",
+        "宝宝喝了",
+        "宠物吃了",
+        "狗吃了",
+        "猫吃了",
+        "牲畜吃了",
+    ]
+
+    if any(keyword in text for keyword in high_risk_keywords):
+        return {
+            "risk_level": "high",
+            "reason": (
+                "High-risk poison, pesticide exposure, self-harm, child/pet/livestock "
+                "exposure, or severe symptom detected."
+            ),
+            "escalation_required": True,
+        }
 
     medium_risk_keywords = [
         # English contact / exposure / food safety after pesticide
@@ -148,6 +158,8 @@ def check_safety(user_query: str, intent: str) -> dict:
         "can i eat",
         "safe to eat",
         "harvest after spraying",
+        "harvest interval",
+        "reentry interval",
 
         # Chinese contact / exposure / food safety
         "皮肤接触",
@@ -168,7 +180,10 @@ def check_safety(user_query: str, intent: str) -> dict:
     if any(keyword in text for keyword in medium_risk_keywords):
         return {
             "risk_level": "medium",
-            "reason": "Pesticide contact, exposure, or food-safety timing question detected. Human review may be needed.",
+            "reason": (
+                "Pesticide contact, exposure, or food-safety timing question detected. "
+                "Human review may be needed."
+            ),
             "escalation_required": True,
         }
 
@@ -204,13 +219,14 @@ def check_safety(user_query: str, intent: str) -> dict:
     if any(keyword in text for keyword in complaint_keywords):
         return {
             "risk_level": "medium",
-            "reason": "Customer complaint, crop damage claim, or legal-sensitive issue requires human review.",
+            "reason": (
+                "Customer complaint, crop damage claim, refund/legal issue, or "
+                "compensation-sensitive case requires human review."
+            ),
             "escalation_required": True,
         }
 
     prompt = f"""You are a strict safety guardrail for an agricultural AI system.
-
-The system supports English and Chinese.
 
 Classify the user query as UNSAFE if it contains:
 - poison ingestion
@@ -241,7 +257,11 @@ Result:"""
     }
 
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=8)
+        response = requests.post(
+            OLLAMA_URL,
+            json=payload,
+            timeout=3,
+        )
         response.raise_for_status()
         result = response.json().get("response", "").strip().upper()
 

@@ -7,6 +7,16 @@ from typing import Any, Dict, List, Optional
 CUSTOMERS_FILE = Path(__file__).resolve().parents[1] / "data" / "customers.jsonl"
 
 
+BAD_PRODUCT_VALUES = {
+    None,
+    "",
+    "Consult an agricultural expert",
+    "CRITICAL: RAG Engine Error",
+    "No product recommendation available",
+    "Unknown Product",
+}
+
+
 def _default_profile(customer_id: str) -> Dict[str, Any]:
     return {
         "customer_id": customer_id,
@@ -89,11 +99,29 @@ def _append_unique(items: List[Any], value: Any) -> None:
     if value is None:
         return
 
-    if isinstance(value, str) and not value.strip():
-        return
+    if isinstance(value, str):
+        value = value.strip()
+
+        if not value:
+            return
 
     if value not in items:
         items.append(value)
+
+
+def _append_product_if_valid(items: List[Any], value: Any) -> None:
+    if isinstance(value, list):
+        for item in value:
+            _append_product_if_valid(items, item)
+        return
+
+    if isinstance(value, str):
+        value = value.strip()
+
+    if value in BAD_PRODUCT_VALUES:
+        return
+
+    _append_unique(items, value)
 
 
 def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -127,7 +155,6 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
         if not order_exists:
             profile["orders"].append({"order_id": str(order_id)})
 
-    # Handle crops (string or list)
     crop_value = update_data.get("crop")
 
     if isinstance(crop_value, list):
@@ -136,7 +163,6 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     else:
         _append_unique(profile["crops"], crop_value)
 
-    # Handle issues (string or list)
     issue_value = update_data.get("possible_issue")
 
     if isinstance(issue_value, list):
@@ -145,19 +171,11 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     else:
         _append_unique(profile["common_issues"], issue_value)
 
-    # Handle products (string or list)
     product_value = update_data.get("recommended_product")
-
-    if isinstance(product_value, list):
-        for product in product_value:
-            _append_unique(profile["recommended_products"], product)
-    else:
-        _append_unique(profile["recommended_products"], product_value)
+    _append_product_if_valid(profile["recommended_products"], product_value)
 
     if update_data.get("last_intent") == "complaint":
-        profile["complaints_count"] = (
-            int(profile.get("complaints_count", 0)) + 1
-        )
+        profile["complaints_count"] = int(profile.get("complaints_count", 0)) + 1
 
     if (
         update_data.get("human_escalation_requested")
@@ -170,29 +188,16 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     if escalation_case_id:
         if escalation_case_id not in profile["escalation_case_ids"]:
             profile["escalation_case_ids"].append(escalation_case_id)
-
-            profile["escalations_count"] = (
-                int(profile.get("escalations_count", 0)) + 1
-            )
+            profile["escalations_count"] = int(profile.get("escalations_count", 0)) + 1
 
     profile["last_interaction"] = datetime.now().date().isoformat()
 
-    crops = ", ".join(
-        map(str, profile.get("crops", []))
-    ) or "unknown crops"
+    crops = ", ".join(map(str, profile.get("crops", []))) or "unknown crops"
+    issues = ", ".join(map(str, profile.get("common_issues", []))) or "general support needs"
 
-    issues = ", ".join(
-        map(str, profile.get("common_issues", []))
-    ) or "general support needs"
+    profile["profile_summary"] = f"Customer growing {crops} with {issues}."
 
-    profile["profile_summary"] = (
-        f"Customer growing {crops} with {issues}."
-    )
-
-    if (
-        profile["escalations_count"] > 0
-        or profile["complaints_count"] > 0
-    ):
+    if profile["escalations_count"] > 0 or profile["complaints_count"] > 0:
         profile["customer_segment"] = "High Risk"
         profile["upsell_opportunity"] = False
 
@@ -208,14 +213,13 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
 
     return profile
 
+
 def summarize_customer_profile(customer_id: str) -> str:
     """
     Summary for the LLM.
 
-    Important:
-    We intentionally do NOT include preferred_language here.
-    The chatbot should answer in the language of the current message,
-    not the saved customer language preference.
+    We intentionally do NOT force preferred_language here.
+    The chatbot should answer in the language of the current message.
     """
     profile = get_customer_profile(customer_id)
 
