@@ -196,7 +196,6 @@ def classify_intent(user_query: str) -> str:
         "pesticide residue",
         "residue dangerous",
         "is pesticide residue dangerous",
-        "ppe",
         "gloves",
         "mask",
         "kill myself",

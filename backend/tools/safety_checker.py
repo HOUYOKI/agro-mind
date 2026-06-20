@@ -160,6 +160,9 @@ def check_safety(user_query: str, intent: str) -> dict:
         "harvest after spraying",
         "harvest interval",
         "reentry interval",
+        "pesticide residue",
+        "residue dangerous",
+        "residue",
 
         # Chinese contact / exposure / food safety
         "皮肤接触",
@@ -201,6 +204,13 @@ def check_safety(user_query: str, intent: str) -> dict:
         "legal",
         "sue",
         "lawsuit",
+        "unhappy",
+        "not happy",
+        "not satisfied",
+        "dissatisfied",
+        "report a problem",
+        "problem with my order",
+        "problem with your product",
 
         # Chinese complaints
         "损坏了我的作物",
