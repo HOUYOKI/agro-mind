@@ -485,6 +485,9 @@ Rules:
 """
 
     try:
+        print("\n===== DEBUG =====")
+        print("RAG SUMMARY LENGTH:", len(str(rag_result["summary"])))
+        print("=================\n")
         raw_response = ask_agro_mind(llm_prompt)
         state["ai_response"] = enforce_final_safety_response(state, raw_response)
         state["llm_status"] = "completed"

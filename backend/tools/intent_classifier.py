@@ -1,155 +1,159 @@
-import re
 import requests
 
+VALID_INTENTS = [
+    "crop_diagnosis",
+    "product_question",
+    "pesticide_safety",
+    "order_status",
+    "complaint",
+    "general_question"
+]
 
-def classify_intent(user_query: str) -> str:
-    """
-    Hybrid intent classifier for Agro-Mind.
-    Uses deterministic rules first, then local Qwen as backup.
-    """
-    query_clean = user_query.lower().strip()
+INTENT_KEYWORDS = {
 
-    valid_intents = [
-        "crop_diagnosis",
-        "product_question",
-        "pesticide_safety",
-        "order_status",
-        "complaint",
-        "general_question"
-    ]
-
-    # 1. Complaint / human escalation signals
-    complaint_keywords = [
-        "fake",
-        "scam",
-        "fraud",
+    "complaint": [
         "complaint",
         "refund",
         "compensation",
+        "fake",
+        "scam",
+        "fraud",
+        "unhappy",
+        "disappointed",
+        "not satisfied",
+        "dissatisfied",
         "bad product",
+        "poor quality",
         "defective",
+        "issue with product",
+        "product issue",
+        "problem with my order",
+        "report a problem",
+        "report issue",
+        "angry",
+        "unacceptable",
         "damaged my crops",
         "damaged my crop",
+        "damaged my plants",
+        "damaged plants",
         "ruined my crops",
         "ruined my crop",
         "killed my crops",
         "killed my plants",
         "burned my plants",
-        "harmed my crops",
-        "not working",
-        "doesn't work",
-        "did not work",
-        "angry",
-        "unacceptable"
-    ]
+        "caused losses",
+        "recommendation caused losses"
+    ],
 
-    if any(keyword in query_clean for keyword in complaint_keywords):
-        return "complaint"
+    "pesticide_safety": [
+        "pesticide",
+        "toxicity",
+        "toxic",
+        "poison",
+        "swallowed",
+        "inhaled",
+        "breathed",
+        "eyes",
+        "eye",
+        "skin",
+        "chemical exposure",
+        "after spraying",
+        "sprayed",
+        "eat after spraying",
+        "residue",
+        "spray residue",
+        "residue on food",
+        "dangerous",
+        "safe to eat",
+        "food safety",
+        "harvest interval",
+        "reentry interval",
+        "ppe",
+        "gloves",
+        "mask"
+    ],
 
-    # 2. Order / logistics
-    order_keywords = [
+    "product_question": [
+        "product",
+        "recommend",
+        "recommendation",
+        "help",
+        "which product",
+        "what product",
+        "suggest",
+        "fungicide",
+        "fertilizer",
+        "dosage",
+        "dose",
+        "dilution",
+        "ingredient",
+        "mix",
+        "how much",
+        "how many ml"
+    ],
+
+    "order_status": [
         "order",
         "tracking",
         "shipment",
         "shipping",
         "delivery",
         "delivered",
-        "where is my order",
+        "package",
         "eta",
-        "arrive",
-        "package"
-    ]
+        "where is my order",
+        "track my order"
+    ],
 
-    if any(keyword in query_clean for keyword in order_keywords):
-        return "order_status"
-
-    # 3. Pesticide safety
-    safety_keywords = [
-        "pesticide on my skin",
-        "skin",
-        "eyes",
-        "eye",
-        "burning",
-        "breathed",
-        "inhaled",
-        "swallowed",
-        "drank",
-        "ate pesticide",
-        "poison",
-        "toxicity",
-        "toxic",
-        "safety",
-        "after spraying",
-        "sprayed",
-        "chemical exposure",
-        "ppe",
-        "gloves",
-        "mask"
-    ]
-
-    if any(keyword in query_clean for keyword in safety_keywords):
-        return "pesticide_safety"
-
-    # 4. Crop diagnosis
-    diagnostic_keywords = [
-        "symptom",
-        "treatment",
-        "yellowing",
-        "yellow leaves",
+    "crop_diagnosis": [
         "disease",
-        "pest",
-        "rot",
+        "symptom",
+        "symptoms",
+        "treatment",
+        "yellow leaves",
+        "yellowing",
         "leaf",
         "leaves",
-        "wilt",
-        "citrus",
-        "tomato",
         "spots",
+        "leaf spot",
         "blight",
-        "mold",
-        "fungus"
+        "mildew",
+        "fungus",
+        "fungal",
+        "rot",
+        "wilt",
+        "wilting",
+        "pest",
+        "tomato",
+        "pepper",
+        "cucumber",
+        "rice",
+        "citrus",
+        "grape",
+        "apple",
+        "crop"
     ]
+}
 
-    if any(keyword in query_clean for keyword in diagnostic_keywords):
-        return "crop_diagnosis"
 
-    # 5. Product question
-    product_keywords = [
-        "product",
-        "fertilizer",
-        "dosage",
-        "dose",
-        "dilution",
-        "how many ml",
-        "how much",
-        "spray",
-        "use this",
-        "ingredient",
-        "mix"
-    ]
+def qwen_fallback(user_query: str) -> str:
 
-    if any(keyword in query_clean for keyword in product_keywords):
-        return "product_question"
+    prompt = f"""
+Classify the user query into exactly one label.
 
-    # 6. Qwen backup
-    url = "http://127.0.0.1:11434/api/generate"
+Valid labels:
+crop_diagnosis
+product_question
+pesticide_safety
+order_status
+complaint
+general_question
 
-    prompt = f"""You are an intent classification engine for an agricultural AI system.
+User Query:
+{user_query}
 
-Map the user query to exactly one label.
-
-VALID LABELS:
-- crop_diagnosis: plant diseases, crop symptoms, pests, yellow leaves, plant treatments.
-- product_question: product usage, fertilizers, pesticide dosage, ingredients, dilution.
-- pesticide_safety: chemical toxicity, pesticide exposure, skin/eye contact, ingestion, PPE, food safety after spraying.
-- order_status: shipping, logistics, order tracking, delivery.
-- complaint: fake product, damaged crops, refund, compensation, angry customer, product did not work.
-- general_question: greetings, casual talk, or unclear query.
-
-Output ONLY the exact label.
-
-User Query: "{user_query}"
-Label:"""
+Output only one label.
+"""
 
     payload = {
         "model": "qwen2.5:7b",
@@ -157,22 +161,56 @@ Label:"""
         "stream": False,
         "options": {
             "temperature": 0.0,
-            "num_predict": 10
+            "num_predict": 5
         }
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=60)
+        response = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json=payload,
+            timeout=15
+        )
 
         if response.status_code == 200:
-            raw_output = response.json().get("response", "").strip().lower()
-            extracted_words = re.findall(r"[a-z_]+", raw_output)
 
-            for word in extracted_words:
-                if word in valid_intents:
-                    return word
+            output = response.json().get(
+                "response",
+                ""
+            ).strip().lower()
 
-    except requests.exceptions.RequestException:
+            for intent in VALID_INTENTS:
+                if intent in output:
+                    return intent
+
+    except Exception:
         pass
 
     return "general_question"
+
+
+def classify_intent(user_query: str) -> str:
+
+    query = user_query.lower().strip()
+
+    scores = {
+        "crop_diagnosis": 0,
+        "product_question": 0,
+        "pesticide_safety": 0,
+        "order_status": 0,
+        "complaint": 0
+    }
+
+    for intent, keywords in INTENT_KEYWORDS.items():
+
+        for keyword in keywords:
+
+            if keyword in query:
+                scores[intent] += 1
+
+    best_intent = max(scores, key=scores.get)
+
+    if scores[best_intent] > 0:
+        return best_intent
+
+    return qwen_fallback(user_query)
