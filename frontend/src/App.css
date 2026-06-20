@@ -525,6 +525,80 @@ textarea:focus {
   line-height: 1.6;
 }
 
+/* ============================= */
+/* Human Escalation / HITL Styles */
+/* ============================= */
+
+.human-escalation-btn {
+  width: 100%;
+  margin-top: 15px;
+  padding: 14px;
+  border-radius: 12px;
+  border: none;
+  background: #17372b;
+  color: white;
+  font-size: 16px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.human-escalation-btn:hover {
+  background: #0d241b;
+}
+
+.review-layout {
+  position: relative;
+  z-index: 1;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.review-panel {
+  border: 1px solid rgba(13, 75, 52, 0.1);
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 32px;
+  box-shadow: 0 24px 80px rgba(25, 54, 39, 0.1);
+  backdrop-filter: blur(18px);
+  padding: 24px;
+  min-height: calc(100vh - 118px);
+}
+
+.review-card {
+  margin-top: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(35, 83, 62, 0.1);
+  background: #ffffff;
+}
+
+.review-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.review-card-header h3 {
+  margin: 0;
+  color: #0a3827;
+}
+
+.review-card-header span {
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #fff1ca;
+  color: #875200;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.review-card p {
+  color: #3c5148;
+  line-height: 1.55;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -574,5 +648,10 @@ textarea:focus {
 
   .composer button {
     height: 52px;
+  }
+
+  .review-card-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

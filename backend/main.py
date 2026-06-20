@@ -1,23 +1,26 @@
-from fastapi import FastAPI, UploadFile, File
+from typing import Optional
+
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import shutil
 import os
 
-from backend.tools.intent_classifier import classify_intent
-from backend.tools.safety_checker import check_safety
-from backend.tools.product_recommender import recommend_product
-from backend.tools.logistics_lookup import lookup_order
-from backend.tools.case_memory import init_database, save_case
-from backend.tools.image_diagnosis import analyze_crop_image
-from backend.tools.llm_agent import ask_agro_mind
-from backend.tools.rag_retriever import retrieve_agronomy_knowledge
+from backend.tools.case_memory import init_database
+from backend.vision.diagnosis_tool import diagnose_crop_image
+from backend.tools.customer_profile import load_customers, update_customer_profile
+from backend.agent_graph import run_agro_graph
+from backend.tools.escalation_queue import (
+    create_escalation_case,
+    list_escalations,
+    mark_escalation_reviewed,
+)
 
 
 app = FastAPI(
     title="Agro-Mind API",
     description="AI-powered agricultural support assistant backend",
-    version="0.1.0"
+    version="0.1.0",
 )
 
 
@@ -27,7 +30,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5175",
-        "http://127.0.0.1:5175"
+        "http://127.0.0.1:5175",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -40,6 +43,75 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class EscalationRequest(BaseModel):
+    customer_id: str
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    issue: str
+    ai_response: Optional[str] = None
+    source: Optional[str] = "manual"
+
+
+class EscalationReviewRequest(BaseModel):
+    reviewer_note: Optional[str] = None
+
+
+def _is_chinese_text(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text or "")
+
+
+def _is_poison_or_self_harm_message(text: str) -> bool:
+    lowered = (text or "").lower()
+
+    danger_phrases = [
+        "eat poison",
+        "eat poisonous",
+        "eat poisoness",
+        "consume poison",
+        "drink poison",
+        "i want to eat poison",
+        "i want to eat poisonous",
+        "i want to eat poisoness",
+        "i want to drink poison",
+        "poison myself",
+        "harm myself",
+        "kill myself",
+        "suicide",
+        "self harm",
+        "self-harm",
+
+        "吃毒药",
+        "喝毒药",
+        "想吃毒药",
+        "想喝毒药",
+        "服毒",
+        "毒死自己",
+        "伤害自己",
+        "自杀",
+        "自残",
+    ]
+
+    return any(phrase in lowered for phrase in danger_phrases)
+
+
+def _safe_high_risk_response(message: str) -> str:
+    if _is_chinese_text(message):
+        return (
+            "这可能涉及中毒、误食有害物质或自我伤害风险。请不要食用或接触该物质。"
+            "请立即联系当地急救服务、毒物控制中心或医疗专业人员。"
+            "如果与农药有关，请保留产品标签供专业人员查看。"
+            "此案例已被标记为需要人工审核。"
+        )
+
+    return (
+        "This may involve poison ingestion, chemical exposure, or self-harm risk. "
+        "Do not consume or touch the substance. Please contact local emergency services, "
+        "poison control, or a medical professional immediately. If this involves a pesticide, "
+        "keep the product label available for the professional to review. "
+        "This case has been flagged for human review."
+    )
+
+
 @app.on_event("startup")
 def startup_event():
     init_database()
@@ -49,22 +121,143 @@ def startup_event():
 def home():
     return {
         "message": "Agro-Mind backend is running",
-        "status": "ok"
+        "status": "ok",
+        "workflow": "LangGraph",
     }
 
 
-# ==========================================
-# IMAGE DIAGNOSIS ENDPOINT
-# ==========================================
+@app.get("/customers")
+def get_customers():
+    return load_customers()
+
+
+@app.post("/human-escalation")
+def human_escalation(request: EscalationRequest):
+    case = create_escalation_case(
+        customer_id=request.customer_id,
+        case_type="manual_human_request",
+        reason=request.issue,
+        ai_response=request.ai_response or "",
+        source=request.source or "manual",
+        payload={
+            "name": request.name,
+            "phone": request.phone,
+            "issue": request.issue,
+        },
+    )
+
+    updated_profile = None
+
+    try:
+        updated_profile = update_customer_profile(
+            request.customer_id,
+            {
+                "human_escalation_requested": True,
+                "escalation_case_id": case["case_id"],
+            },
+        )
+    except Exception as error:
+        print("Customer profile escalation update failed:", error)
+
+    return {
+        "status": "received",
+        "message": "Human agent will contact you.",
+        "human_review_required": True,
+        "escalation_required": True,
+        "escalation_case_id": case["case_id"],
+        "case": case,
+        "updated_customer_profile": updated_profile,
+    }
+
+
+@app.get("/escalations")
+def get_escalations(status: str = "pending"):
+    return {
+        "status": status,
+        "items": list_escalations(status=status),
+    }
+
+
+@app.post("/escalations/{case_id}/review")
+def review_escalation(case_id: str, request: EscalationReviewRequest):
+    try:
+        updated_case = mark_escalation_reviewed(
+            case_id=case_id,
+            reviewer_note=request.reviewer_note,
+        )
+
+        return {
+            "success": True,
+            "case": updated_case,
+        }
+
+    except ValueError as error:
+        return {
+            "success": False,
+            "error": str(error),
+        }
+
+
 @app.post("/diagnose")
-async def diagnose(file: UploadFile = File(...)):
+async def diagnose(
+    file: UploadFile = File(...),
+    customer_id: str = Form("unknown"),
+):
     temp_file_path = f"temp_{file.filename}"
 
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        result = analyze_crop_image(temp_file_path, use_llm=False)
+        result = diagnose_crop_image(temp_file_path)
+
+        needs_review = bool(
+            result.get("needs_human_review")
+            or result.get("human_review_required")
+            or result.get("escalation_required")
+        )
+
+        if needs_review and not result.get("escalation_case_id"):
+            ai_response = (
+                result.get("response")
+                or result.get("customer_response")
+                or result.get("safe_response")
+                or "This image diagnosis requires review by a human agronomist."
+            )
+
+            reason = (
+                result.get("reason")
+                or result.get("diagnosis")
+                or result.get("disease")
+                or "Low-confidence image diagnosis requires agronomist review."
+            )
+
+            case = create_escalation_case(
+                customer_id=customer_id,
+                case_type="image_diagnosis",
+                reason=reason,
+                ai_response=ai_response,
+                source="diagnose",
+                payload=result,
+            )
+
+            result["human_review_required"] = True
+            result["escalation_required"] = True
+            result["escalation_case_id"] = case["case_id"]
+
+            try:
+                updated_profile = update_customer_profile(
+                    customer_id,
+                    {
+                        "human_escalation_requested": True,
+                        "escalation_case_id": case["case_id"],
+                    },
+                )
+                result["updated_customer_profile"] = updated_profile
+
+            except Exception as error:
+                print("Customer profile image escalation update failed:", error)
+
         return result
 
     finally:
@@ -72,257 +265,75 @@ async def diagnose(file: UploadFile = File(...)):
             os.remove(temp_file_path)
 
 
-# ==========================================
-# CHAT ENDPOINT
-# ==========================================
 @app.post("/chat")
 def chat(request: ChatRequest):
-    # 1. Classify customer intent
-    intent = classify_intent(request.message)
+    result = run_agro_graph(
+        customer_id=request.customer_id,
+        message=request.message,
+    )
+    
+    # Final safety cleanup:
+    # If the graph produced a generic crop/food-safety response for a poison/self-harm message,
+    # override it with a safer emergency-style response.
+    if result.get("risk_level") == "high" and _is_poison_or_self_harm_message(request.message):
+        result["response"] = _safe_high_risk_response(request.message)
+        result["recommended_product"] = None
+        result["detected_crop"] = None
+        result["detected_issue"] = "High-risk poison or self-harm message"
+        result["product_reason"] = "High-risk safety case. Product recommendation disabled."
+        result["escalation_required"] = True
+        result["human_review_required"] = True
 
-    # 2. Check safety level
-    safety_result = check_safety(request.message, intent)
-
-    # 3. Default product result
-    product_result = {
-        "recommended_product": None,
-        "reason": "Product recommendation not needed for this intent.",
-        "safety_note": None,
-        "detected_crop": None,
-        "detected_issue": None
-    }
-
-    # 4. Default order result
-    order_result = {
-        "order_found": False,
-        "order_id": None,
-        "status": None,
-        "eta": None,
-        "tracking_number": None,
-        "reason": "Order lookup not needed for this intent."
-    }
-
-    # 5. Default RAG result
-    rag_result = {
-        "rag_used": False,
-        "found": False,
-        "summary": "RAG retrieval not needed for this intent.",
-        "sources": [],
-        "confidence": 0.0,
-        "status": "skipped"
-    }
-
-    # 6. Run product recommender only when useful
-    if intent in ["crop_diagnosis", "product_question"]:
-        product_result = recommend_product(request.message)
-
-    # 7. Run RAG when useful
-    if intent in ["crop_diagnosis", "product_question", "pesticide_safety", "general_question"]:
-        rag_result = retrieve_agronomy_knowledge(request.message, intent)
-
-    # 8. Run logistics/order lookup only for order intent
-    if intent == "order_status":
-        order_result = lookup_order(request.message, request.customer_id)
-
-    # ==========================================
-    # OLD RULE-BASED RESPONSE / FALLBACK
-    # ==========================================
-    response_text = (
-        f"Intent: {intent}\n\n"
-        f"Risk level: {safety_result['risk_level']}\n"
-        f"Safety reason: {safety_result['reason']}\n\n"
+    needs_review = bool(
+        result.get("escalation_required")
+        or result.get("human_review_required")
+        or result.get("risk_level") == "high"
     )
 
-    if product_result["recommended_product"]:
-        response_text += (
-            f"Detected crop: {product_result['detected_crop']}\n"
-            f"Possible issue: {product_result['detected_issue']}\n"
-            f"Possible product: {product_result['recommended_product']}\n"
-            f"Product reason: {product_result['reason']}\n"
-            f"Safety note: {product_result['safety_note']}\n\n"
-            "Important: Please confirm the diagnosis before applying any pesticide."
+    if needs_review and not result.get("escalation_case_id"):
+        ai_response = (
+            result.get("response")
+            or result.get("answer")
+            or "This case requires human review."
         )
 
-    elif intent != "order_status":
-        response_text += "No product recommendation was made for this message."
+        reason = (
+            result.get("safety_reason")
+            or result.get("risk_reason")
+            or result.get("reason")
+            or result.get("detected_issue")
+            or result.get("product_reason")
+            or "Text case requires human support review."
+        )
 
-    if intent == "order_status":
-        if order_result["order_found"]:
-            response_text += (
-                f"Order status:\n"
-                f"Order ID: {order_result['order_id']}\n"
-                f"Status: {order_result['status']}\n"
-                f"ETA: {order_result['eta']}\n"
-                f"Tracking number: {order_result['tracking_number']}\n"
-                f"Lookup reason: {order_result['reason']}"
+        case = create_escalation_case(
+            customer_id=request.customer_id,
+            case_type=result.get("intent") or "chat_support",
+            reason=reason,
+            ai_response=ai_response,
+            source="chat",
+            payload=result,
+        )
+
+        result["human_review_required"] = True
+        result["escalation_required"] = True
+        result["escalation_case_id"] = case["case_id"]
+
+        try:
+            updated_profile = update_customer_profile(
+                request.customer_id,
+                {
+                    "human_escalation_requested": True,
+                    "escalation_case_id": case["case_id"],
+                },
             )
-        else:
-            response_text += (
-                f"Order status:\n"
-                f"{order_result['reason']}"
-            )
 
-    # ==========================================
-    # QWEN LLM FINAL CUSTOMER RESPONSE
-    # ==========================================
-    llm_prompt = f"""
-You are writing the final chatbot response for Agro-Mind.
+            result["updated_customer_profile"] = updated_profile
+            result["customer_profile"] = updated_profile
 
-Customer message:
-{request.message}
+        except Exception as error:
+            print("Customer profile chat escalation update failed:", error)
 
-Tool results:
+    
 
-Intent classifier:
-- Intent: {intent}
-
-Safety checker:
-- Risk level: {safety_result['risk_level']}
-- Safety reason: {safety_result['reason']}
-- Escalation required: {safety_result['escalation_required']}
-
-Product recommender:
-- Detected crop: {product_result['detected_crop']}
-- Detected issue: {product_result['detected_issue']}
-- Recommended product: {product_result['recommended_product']}
-- Product reason: {product_result['reason']}
-- Safety note: {product_result['safety_note']}
-
-RAG retriever:
-- RAG used: {rag_result['rag_used']}
-- Knowledge found: {rag_result['found']}
-- Knowledge summary: {rag_result['summary']}
-- Sources: {rag_result['sources']}
-- Confidence: {rag_result['confidence']}
-- RAG status: {rag_result['status']}
-
-Order lookup:
-- Order found: {order_result['order_found']}
-- Order ID: {order_result['order_id']}
-- Status: {order_result['status']}
-- ETA: {order_result['eta']}
-- Tracking number: {order_result['tracking_number']}
-- Order reason: {order_result['reason']}
-
-Write the final customer-facing chatbot answer.
-
-Rules:
-1. Do not greet with "Dear", "Hello C001", or write like an email.
-2. Do not end with "Best regards" or "Agro-Mind Team".
-3. Do not mention internal words like "intent", "tool result", "risk_level", "RAG", or "debug".
-4. Do not invent anything not shown in the tool results.
-5. If no exact product match exists, say that clearly.
-6. If the recommended product is only a general support product, do not present it as a guaranteed solution.
-7. If escalation_required is True, say that a human expert should review or confirm the case.
-8. For pesticide, chemical, harvest, dosage, or food safety, NEVER give exact waiting periods, dosage numbers, safety guarantees, or "it is safe after X days" unless the tool results explicitly provide that exact information.
-9. If the customer asks whether food can be eaten after spraying, say you cannot confirm safety from the message alone. Tell them to check the specific product label for the pre-harvest interval/waiting period and consult a human agricultural expert.
-10. If retrieved knowledge is found, use it to support the answer, but do not pretend it is a final diagnosis.
-11. If RAG status is "placeholder", do not mention that to the customer.
-12. Keep the answer between 3 and 7 short sentences.
-13. Sound like a helpful chatbot, not a formal email.
-"""
-
-    try:
-        ai_response = ask_agro_mind(llm_prompt)
-        llm_status = "completed"
-    except Exception as e:
-        print(f"LLM error: {e}")
-        ai_response = response_text
-        llm_status = "failed_fallback_used"
-
-    # ==========================================
-    # SAVE CASE TO DATABASE
-    # ==========================================
-    saved_case = save_case(
-        customer_id=request.customer_id,
-        intent=intent,
-        message=request.message,
-        possible_issue=product_result["detected_issue"],
-        recommended_product=product_result["recommended_product"],
-        risk_level=safety_result["risk_level"],
-        escalation_required=safety_result["escalation_required"],
-        order_id=order_result["order_id"],
-        order_status=order_result["status"],
-    )
-
-    # ==========================================
-    # EXECUTION TRACE
-    # ==========================================
-    execution_trace = [
-        {
-            "step": 1,
-            "task": "Classify customer intent",
-            "status": "completed",
-            "result": intent
-        },
-        {
-            "step": 2,
-            "task": "Check safety risk",
-            "status": "completed",
-            "result": safety_result["risk_level"]
-        },
-        {
-            "step": 3,
-            "task": "Retrieve agronomy knowledge if needed",
-            "status": "completed" if rag_result["rag_used"] else "skipped",
-            "result": rag_result["summary"] if rag_result["found"] else "No RAG knowledge found"
-        },
-        {
-            "step": 4,
-            "task": "Run product recommendation if needed",
-            "status": "completed" if intent in ["crop_diagnosis", "product_question"] else "skipped",
-            "result": product_result["recommended_product"]
-        },
-        {
-            "step": 5,
-            "task": "Run order lookup if needed",
-            "status": "completed" if intent == "order_status" else "skipped",
-            "result": order_result["status"]
-        },
-        {
-            "step": 6,
-            "task": "Generate final response with Qwen",
-            "status": llm_status,
-            "result": "Final chatbot response generated" if llm_status == "completed" else "Fallback rule-based response used"
-        },
-        {
-            "step": 7,
-            "task": "Save support case",
-            "status": "completed" if saved_case["case_saved"] else "skipped",
-            "result": saved_case["reason"]
-        }
-    ]
-
-    # ==========================================
-    # FINAL API RESPONSE
-    # ==========================================
-    return {
-        "customer_id": request.customer_id,
-        "received_message": request.message,
-        "intent": intent,
-
-        # Main final response shown to customer
-        "response": ai_response,
-
-        # Shows the agent workflow steps
-        "execution_trace": execution_trace,
-
-        # Old rule-based response kept for debugging
-        "debug_rule_based_response": response_text,
-
-        "recommended_product": product_result["recommended_product"],
-        "risk_level": safety_result["risk_level"],
-        "escalation_required": safety_result["escalation_required"],
-
-        "case_saved": saved_case["case_saved"],
-        "case_id": saved_case["case_id"],
-        "case_duplicate": saved_case["case_duplicate"],
-        "case_save_reason": saved_case["reason"],
-
-        "detected_crop": product_result["detected_crop"],
-        "detected_issue": product_result["detected_issue"],
-        "product_reason": product_result["reason"],
-
-        "rag": rag_result,
-        "order": order_result
-    }
+    return result
