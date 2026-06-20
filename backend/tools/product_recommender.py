@@ -21,6 +21,10 @@ retriever = AgroMindRetriever()
 def recommend_product(message: str) -> dict:
     try:
         results = retriever.search(message, k=3)
+        print(
+        f"\nPRODUCT RETRIEVER TIME: "
+        f"{round(time.time() - start, 2)} sec"
+         )
 
         if not results:
             return {

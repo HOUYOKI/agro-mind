@@ -47,6 +47,7 @@ def ask_agro_mind(user_message: str) -> str:
         ],
         options={
             "temperature": 0.1,
+             "num_predict": 120
         },
     )
 
