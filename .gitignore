@@ -42,3 +42,8 @@ backend/vision_chromadb/
 
 # Training images
 backend/data/Agromind_Image/
+
+backend/data/customer_profiles.db
+backend/data/customer_profiles.db-journal
+backend/data/customer_profiles.db-wal
+backend/data/customer_profiles.db-shm
