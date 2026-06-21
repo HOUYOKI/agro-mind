@@ -1,10 +1,11 @@
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import shutil
 import os
+import tempfile
 
 from backend.tools.case_memory import init_database
 from backend.vision.diagnosis_tool import diagnose_crop_image
@@ -203,12 +204,19 @@ async def diagnose(
     file: UploadFile = File(...),
     customer_id: str = Form("unknown"),
 ):
-    temp_file_path = f"temp_{file.filename}"
+    _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+    temp_file_path = None
 
-    with open(temp_file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    data = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit.")
 
     try:
+        suffix = os.path.splitext(file.filename or "")[1].lower() or ".tmp"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            temp_file_path = tmp.name
+            tmp.write(data)
+
         result = diagnose_crop_image(temp_file_path)
 
         needs_review = bool(
@@ -261,7 +269,7 @@ async def diagnose(
         return result
 
     finally:
-        if os.path.exists(temp_file_path):
+        if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
 
