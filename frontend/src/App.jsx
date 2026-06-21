@@ -36,6 +36,76 @@ function formatLabel(value) {
   return String(value).replaceAll("_", " ");
 }
 
+function safeText(value, fallback = "Not available") {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((item) => safeText(item, fallback)).join(", ")
+      : fallback;
+  }
+
+  if (typeof value === "object") {
+    if (value.crop) return safeText(value.crop, fallback);
+    if (value.disease) return safeText(value.disease, fallback);
+    if (value.disease_type) return safeText(value.disease_type, fallback);
+    if (value.product_name) return safeText(value.product_name, fallback);
+    if (value.product_name_en) return safeText(value.product_name_en, fallback);
+    if (value.name) return safeText(value.name, fallback);
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallback;
+    }
+  }
+
+  return String(value);
+}
+
+function displayDiagnosisLabel(value) {
+  const text = safeText(value, "Unknown");
+
+  const labelMap = {
+    玫瑰: "Rose",
+    黑斑病: "Black spot disease",
+    真菌病害: "Fungal disease",
+    番茄: "Tomato",
+    黄瓜: "Cucumber",
+    辣椒: "Pepper",
+    苹果: "Apple",
+    葡萄: "Grape",
+    水稻: "Rice",
+    小麦: "Wheat",
+    玉米: "Corn",
+    根腐: "Root rot",
+    叶斑病: "Leaf spot disease",
+    白粉病: "Powdery mildew",
+    炭疽病: "Anthracnose",
+    锈病: "Rust disease",
+  };
+
+  return labelMap[text] || text;
+}
+
+function getImageDiagnosisObject(data) {
+  if (data?.diagnosis_response && typeof data.diagnosis_response === "object") {
+    return data.diagnosis_response;
+  }
+
+  if (data?.diagnosis && typeof data.diagnosis === "object") {
+    return data.diagnosis;
+  }
+
+  if (data?.result && typeof data.result === "object") {
+    return data.result;
+  }
+
+  return {};
+}
+
 function App() {
   const [customerId, setCustomerId] = useState("123");
   const [message, setMessage] = useState("");
@@ -147,27 +217,47 @@ function App() {
 
       console.log("Diagnosis response:", data);
 
+      const diagnosisObject = getImageDiagnosisObject(data);
+
+      const detectedCrop = displayDiagnosisLabel(
+        data.crop || data.detected_crop || diagnosisObject.crop
+      );
+
+      const detectedDisease = displayDiagnosisLabel(
+        data.disease ||
+          data.condition ||
+          data.detected_issue ||
+          diagnosisObject.disease ||
+          data.diagnosis
+      );
+
+      const detectedDiseaseType = displayDiagnosisLabel(
+        data.disease_type || diagnosisObject.disease_type || "Not available"
+      );
+
       const confidenceRaw =
         typeof data.confidence === "number"
           ? data.confidence
-          : Number(data.confidence || 0);
+          : Number(data.confidence || diagnosisObject.confidence || 0);
 
       const confidence =
         confidenceRaw > 1
           ? Math.round(confidenceRaw)
           : Math.round(confidenceRaw * 100);
 
-      const symptoms = Array.isArray(data.symptoms)
-        ? data.symptoms.join(", ")
-        : data.symptoms || data.explanation || "Not available";
+      const symptoms = safeText(
+        data.symptoms || data.explanation || data.description,
+        "Not available"
+      );
 
-      const customerFacingResponse =
+      const customerFacingResponse = safeText(
         data.response ||
-        data.customer_response ||
-        data.safe_response ||
-        data.recommendation ||
-        data.recommendation_hint ||
-        "No direct product recommendation was shown. Human review may be required.";
+          data.customer_response ||
+          data.safe_response ||
+          data.recommendation ||
+          data.recommendation_hint,
+        "No direct product recommendation was shown. Human review may be required."
+      );
 
       let recommendedProduct = null;
 
@@ -187,22 +277,19 @@ function App() {
           null;
       }
 
+      recommendedProduct = safeText(recommendedProduct, "");
+
       let responseText = `📷 Image Diagnosis Complete:\n\n`;
 
-      responseText += `Crop: ${
-        data.crop || data.detected_crop || "Unknown"
-      }\n\n`;
+      responseText += `Crop: ${detectedCrop}\n\n`;
 
-      responseText += `Disease: ${
-        data.disease || data.condition || data.diagnosis || "Unknown"
-      }\n\n`;
+      responseText += `Disease: ${detectedDisease}\n\n`;
+
+      responseText += `Disease type: ${detectedDiseaseType}\n\n`;
 
       responseText += `Confidence: ${confidence}%\n\n`;
-
-      responseText += `Severity: ${data.severity || "Not available"}\n\n`;
-
+      responseText += `Severity: ${safeText(data.severity, "Not available")}\n\n`;
       responseText += `Symptoms: ${symptoms}\n\n`;
-
       responseText += `Recommendation: ${customerFacingResponse}`;
 
       if (recommendedProduct) {
@@ -228,14 +315,10 @@ function App() {
           (data.needs_human_review || data.human_review_required
             ? "medium"
             : "low"),
-        detected_crop: data.crop || data.detected_crop || "From Image",
-        detected_issue: data.disease || data.diagnosis || data.detected_issue,
-        recommended_product: recommendedProduct,
-        product_reason:
-          data.recommendation_hint ||
-          data.response ||
-          data.customer_response ||
-          "Image diagnosis completed.",
+        detected_crop: detectedCrop,
+        detected_issue: detectedDisease,
+        recommended_product: recommendedProduct || null,
+        product_reason: customerFacingResponse || "Image diagnosis completed.",
         escalation_required: Boolean(
           data.escalation_required ||
             data.needs_human_review ||
@@ -252,7 +335,7 @@ function App() {
             step: 2,
             task: "Run image diagnosis tool",
             status: "completed",
-            result: data.disease || data.diagnosis || "Diagnosis returned",
+            result: detectedDisease,
           },
           {
             step: 3,
@@ -298,14 +381,14 @@ function App() {
           name: customerId,
           phone: "",
           issue:
-            latestResult?.detected_issue ||
-            latestResult?.intent ||
+            safeText(latestResult?.detected_issue, "") ||
+            safeText(latestResult?.intent, "") ||
             "User requested human escalation",
           ai_response:
-            latestResult?.response ||
-            latestResult?.customer_response ||
-            latestResult?.safe_response ||
-            latestResult?.product_reason ||
+            safeText(latestResult?.response, "") ||
+            safeText(latestResult?.customer_response, "") ||
+            safeText(latestResult?.safe_response, "") ||
+            safeText(latestResult?.product_reason, "") ||
             "",
           source: latestResult?.intent || "manual",
         }),
@@ -377,22 +460,25 @@ function App() {
     if (data.intent === "order_status") {
       if (data.order?.order_found) {
         response += `I found the order details.\n\n`;
-        response += `Order ID: ${data.order.order_id}\n`;
-        response += `Status: ${data.order.status}\n`;
-        response += `ETA: ${data.order.eta}\n`;
-        response += `Tracking number: ${data.order.tracking_number}\n\n`;
-        response += `${data.order.reason}`;
+        response += `Order ID: ${safeText(data.order.order_id)}\n`;
+        response += `Status: ${safeText(data.order.status)}\n`;
+        response += `ETA: ${safeText(data.order.eta)}\n`;
+        response += `Tracking number: ${safeText(data.order.tracking_number)}\n\n`;
+        response += `${safeText(data.order.reason)}`;
       } else {
         response += "I could not find an order for this request.\n\n";
-        response += data.order?.reason || "No order information was available.";
+        response += safeText(
+          data.order?.reason,
+          "No order information was available."
+        );
       }
 
       if (data.case_saved) {
-        response += `\n\nCase saved: Yes #${data.case_id}`;
+        response += `\n\nCase saved: Yes #${safeText(data.case_id)}`;
       }
 
       if (data.escalation_case_id) {
-        response += `\nHuman review case: ${data.escalation_case_id}`;
+        response += `\nHuman review case: ${safeText(data.escalation_case_id)}`;
       }
 
       return response;
@@ -408,29 +494,29 @@ function App() {
     }
 
     if (data.detected_crop || data.detected_issue) {
-      response += `Possible crop: ${data.detected_crop || "Not detected"}\n`;
-      response += `Possible issue: ${data.detected_issue || "Not confirmed"}\n\n`;
+      response += `Possible crop: ${safeText(data.detected_crop, "Not detected")}\n`;
+      response += `Possible issue: ${safeText(data.detected_issue, "Not confirmed")}\n\n`;
     }
 
     if (data.recommended_product) {
-      response += `Suggested product: ${data.recommended_product}\n`;
+      response += `Suggested product: ${safeText(data.recommended_product)}\n`;
       response +=
         "Please confirm the diagnosis before applying any pesticide or treatment.\n\n";
     } else {
       response += "No product recommendation was made for this message.\n\n";
     }
 
-    response += `Risk level: ${data.risk_level}\n`;
+    response += `Risk level: ${safeText(data.risk_level)}\n`;
     response += data.escalation_required
       ? "Escalation: Human expert review is recommended."
       : "Escalation: No human escalation needed right now.";
 
     if (data.case_saved) {
-      response += `\nCase saved: Yes #${data.case_id}`;
+      response += `\nCase saved: Yes #${safeText(data.case_id)}`;
     }
 
     if (data.escalation_case_id) {
-      response += `\nHuman review case: ${data.escalation_case_id}`;
+      response += `\nHuman review case: ${safeText(data.escalation_case_id)}`;
     }
 
     return response;
@@ -533,22 +619,24 @@ function App() {
               escalations.map((item) => (
                 <div key={item.case_id} className="review-card">
                   <div className="review-card-header">
-                    <h3>{item.case_id}</h3>
-                    <span>{item.status}</span>
+                    <h3>{safeText(item.case_id)}</h3>
+                    <span>{safeText(item.status)}</span>
                   </div>
 
                   <p>
-                    <strong>Customer:</strong> {item.customer_id}
+                    <strong>Customer:</strong> {safeText(item.customer_id)}
                   </p>
 
                   <p>
                     <strong>User message:</strong>{" "}
-                    {item.user_message ||
-                      item.payload?.received_message ||
-                      item.payload?.message ||
-                      item.payload?.issue ||
-                      item.payload?.payload?.issue ||
-                      "Not saved."}
+                    {safeText(
+                      item.user_message ||
+                        item.payload?.received_message ||
+                        item.payload?.message ||
+                        item.payload?.issue ||
+                        item.payload?.payload?.issue,
+                      "Not saved."
+                    )}
                   </p>
 
                   <p>
@@ -556,16 +644,16 @@ function App() {
                   </p>
 
                   <p>
-                    <strong>Source:</strong> {item.source}
+                    <strong>Source:</strong> {safeText(item.source)}
                   </p>
 
                   <p>
-                    <strong>Reason:</strong> {item.reason}
+                    <strong>Reason:</strong> {safeText(item.reason)}
                   </p>
 
                   <p>
                     <strong>AI Response:</strong>{" "}
-                    {item.ai_response || "No AI response saved."}
+                    {safeText(item.ai_response, "No AI response saved.")}
                   </p>
 
                   <textarea
@@ -651,7 +739,7 @@ function App() {
                         margin: 0,
                       }}
                     >
-                      {item.text}
+                      {safeText(item.text, "")}
                     </pre>
                   </div>
                 </div>
@@ -763,7 +851,7 @@ function App() {
                   <div className="metric-card">
                     <ShieldCheck size={21} />
                     <span>Risk</span>
-                    <strong>{latestResult.risk_level}</strong>
+                    <strong>{safeText(latestResult.risk_level)}</strong>
                   </div>
 
                   {latestResult.intent !== "image_diagnosis" && (
@@ -772,7 +860,7 @@ function App() {
                       <span>Case saved</span>
                       <strong>
                         {latestResult.case_saved
-                          ? `Yes #${latestResult.case_id}`
+                          ? `Yes #${safeText(latestResult.case_id)}`
                           : "Not saved"}
                       </strong>
                     </div>
@@ -784,7 +872,10 @@ function App() {
                         <PackageSearch size={21} />
                         <span>Order ID</span>
                         <strong>
-                          {latestResult.order?.order_id || "Not found"}
+                          {safeText(
+                            latestResult.order?.order_id,
+                            "Not found"
+                          )}
                         </strong>
                       </div>
 
@@ -792,7 +883,10 @@ function App() {
                         <Activity size={21} />
                         <span>Status</span>
                         <strong>
-                          {latestResult.order?.status || "Not available"}
+                          {safeText(
+                            latestResult.order?.status,
+                            "Not available"
+                          )}
                         </strong>
                       </div>
                     </>
@@ -802,9 +896,11 @@ function App() {
                         <PackageSearch size={21} />
                         <span>Product/Crop</span>
                         <strong>
-                          {latestResult.recommended_product ||
-                            latestResult.detected_crop ||
-                            "None"}
+                          {safeText(
+                            latestResult.recommended_product ||
+                              latestResult.detected_crop,
+                            "None"
+                          )}
                         </strong>
                       </div>
 
@@ -812,7 +908,9 @@ function App() {
                         <Activity size={21} />
                         <span>Escalation</span>
                         <strong>
-                          {latestResult.escalation_required
+                          {latestResult.escalation_required ||
+                          latestResult.needs_human_review ||
+                          latestResult.human_review_required
                             ? "Required"
                             : "Not required"}
                         </strong>
@@ -830,21 +928,26 @@ function App() {
 
                     <p>
                       <strong>Profile:</strong>{" "}
-                      {latestResult.updated_customer_profile.profile_summary ||
-                        "No summary available"}
+                      {safeText(
+                        latestResult.updated_customer_profile.profile_summary,
+                        "No summary available"
+                      )}
                     </p>
 
                     <p>
                       <strong>Segment:</strong>{" "}
-                      {latestResult.updated_customer_profile.customer_segment ||
-                        "Regular"}
+                      {safeText(
+                        latestResult.updated_customer_profile.customer_segment,
+                        "Regular"
+                      )}
                     </p>
 
                     <p>
                       <strong>Crops:</strong>{" "}
-                      {(latestResult.updated_customer_profile.crops || []).join(
-                        ", "
-                      ) || "Not available"}
+                      {safeText(
+                        latestResult.updated_customer_profile.crops,
+                        "Not available"
+                      )}
                     </p>
                   </div>
                 )}
@@ -863,38 +966,41 @@ function App() {
                       </p>
                       <p>
                         <strong>ETA:</strong>{" "}
-                        {latestResult.order?.eta || "Not available"}
+                        {safeText(latestResult.order?.eta)}
                       </p>
                       <p>
                         <strong>Tracking number:</strong>{" "}
-                        {latestResult.order?.tracking_number ||
-                          "Not available"}
+                        {safeText(latestResult.order?.tracking_number)}
                       </p>
                       <p>
                         <strong>Reason:</strong>{" "}
-                        {latestResult.order?.reason ||
-                          "No lookup reason available"}
+                        {safeText(
+                          latestResult.order?.reason,
+                          "No lookup reason available"
+                        )}
                       </p>
                     </>
                   ) : (
                     <>
                       <p>
                         <strong>Detected crop:</strong>{" "}
-                        {latestResult.detected_crop || "Not detected"}
+                        {safeText(latestResult.detected_crop, "Not detected")}
                       </p>
                       <p>
                         <strong>Detected issue:</strong>{" "}
-                        {latestResult.detected_issue || "Not detected"}
+                        {safeText(latestResult.detected_issue, "Not detected")}
                       </p>
                       <p>
                         <strong>Reason:</strong>{" "}
-                        {latestResult.product_reason ||
-                          "No product reason available"}
+                        {safeText(
+                          latestResult.product_reason,
+                          "No product reason available"
+                        )}
                       </p>
                       {latestResult.escalation_case_id && (
                         <p>
                           <strong>Human review case:</strong>{" "}
-                          {latestResult.escalation_case_id}
+                          {safeText(latestResult.escalation_case_id)}
                         </p>
                       )}
                     </>
@@ -910,11 +1016,12 @@ function App() {
                       </div>
 
                       {latestResult.execution_trace.map((step) => (
-                        <p key={step.step}>
+                        <p key={safeText(step.step)}>
                           <strong>
-                            {step.step}. {step.task}:
+                            {safeText(step.step)}. {safeText(step.task)}:
                           </strong>{" "}
-                          {step.status} — {step.result || "No result"}
+                          {safeText(step.status, "unknown")} —{" "}
+                          {safeText(step.result, "No result")}
                         </p>
                       ))}
                     </div>
