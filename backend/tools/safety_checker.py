@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 
 
@@ -270,11 +271,17 @@ Result:"""
     }
 
     try:
+        start = time.time()
+
         response = requests.post(
             OLLAMA_URL,
             json=payload,
-            timeout=35,
+            timeout=90,
         )
+
+        elapsed = time.time() - start
+        print(f"SAFETY CHECKER QWEN TIME: {elapsed:.2f} sec")
+
         response.raise_for_status()
         result = response.json().get("response", "").strip().upper()
 
