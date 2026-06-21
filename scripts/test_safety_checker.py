@@ -269,7 +269,8 @@ CASES = [
         "expect_risk":      "low",
         "expect_esc":       False,
         "issue":            None,
-        "note":             "no keyword match; Qwen offline → fails open to 'low'",
+        "note":             "no keyword match; if Qwen is offline this now returns medium/True "
+                            "(fail-closed) — NOT a regression, intended after tonight's fix",
     },
     {
         "group":            "SAFE — disease question",
@@ -278,7 +279,8 @@ CASES = [
         "expect_risk":      "low",
         "expect_esc":       False,
         "issue":            None,
-        "note":             "no keyword match",
+        "note":             "no keyword match; if Qwen is offline this now returns medium/True "
+                            "(fail-closed) — NOT a regression, intended after tonight's fix",
     },
     {
         "group":            "SAFE — planting timing",
@@ -287,7 +289,8 @@ CASES = [
         "expect_risk":      "low",
         "expect_esc":       False,
         "issue":            None,
-        "note":             "no keyword match",
+        "note":             "no keyword match; if Qwen is offline this now returns medium/True "
+                            "(fail-closed) — NOT a regression, intended after tonight's fix",
     },
     {
         "group":            "SAFE — fungicide dosage",
@@ -296,7 +299,8 @@ CASES = [
         "expect_risk":      "low",
         "expect_esc":       False,
         "issue":            None,
-        "note":             "no keyword match",
+        "note":             "no keyword match; if Qwen is offline this now returns medium/True "
+                            "(fail-closed) — NOT a regression, intended after tonight's fix",
     },
 
     # ── Group 5: Edge cases ───────────────────────────────────────────────────

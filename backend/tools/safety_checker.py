@@ -285,8 +285,16 @@ Result:"""
                 "escalation_required": True,
             }
 
-    except Exception:
-        pass
+    except Exception as qwen_error:
+        print(f"SAFETY CHECKER — Qwen Tier 4 unavailable: {qwen_error}")
+        return {
+            "risk_level": "medium",
+            "reason": (
+                "Safety guardrail (Qwen) unavailable — message could not be "
+                "verified. Flagged for human review as a precaution."
+            ),
+            "escalation_required": True,
+        }
 
     return {
         "risk_level": "low",
