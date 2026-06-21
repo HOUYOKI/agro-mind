@@ -107,6 +107,8 @@ TEST_CASES = [
         "expect_product": True,
         "expect_rag": True,
         "expect_escalation": False,
+        "allow_fail_closed_escalation": True,
+        "acceptable_llm_status": ["success", "failed_fallback_used"],
     },
     {
         "query": "Suggest a product for crop disease management",
@@ -247,6 +249,7 @@ def run_system_benchmark():
     rag_correct_count = 0
     escalation_correct_count = 0
     successful_cases = 0
+    fail_closed_pass_count = 0
 
     latencies = []
 
@@ -280,6 +283,7 @@ def run_system_benchmark():
         recommended_product = result.get("recommended_product")
         rag_found = bool(result.get("rag", {}).get("found", False))
         escalation_required = bool(result.get("escalation_required", False))
+        llm_status = result.get("llm_status", "unknown")
 
         intent_correct = intent == case["expected_intent"]
 
@@ -294,8 +298,16 @@ def run_system_benchmark():
         )
 
         escalation_correct = (
-            escalation_required
-            == case["expect_escalation"]
+            escalation_required == case["expect_escalation"]
+        )
+        fail_closed_pass = False
+        if not escalation_correct and case.get("allow_fail_closed_escalation"):
+            if escalation_required and llm_status == "failed_fallback_used":
+                escalation_correct = True
+                fail_closed_pass = True
+
+        llm_status_correct = llm_status in case.get(
+            "acceptable_llm_status", ["success"]
         )
 
         if intent_correct:
@@ -315,10 +327,13 @@ def run_system_benchmark():
             and product_correct
             and rag_correct
             and escalation_correct
+            and llm_status_correct
         )
 
         if case_passed:
             successful_cases += 1
+            if fail_closed_pass:
+                fail_closed_pass_count += 1
 
         print(f"\n[Test {index}]")
         print("Query:", case["query"])
@@ -327,9 +342,12 @@ def run_system_benchmark():
         print("Recommended Product:", recommended_product)
         print("RAG Found:", rag_found)
         print("Escalation Required:", escalation_required)
-        print("LLM Status:", result.get("llm_status"))
+        print("LLM Status:", llm_status)
         print("Latency:", latency, "sec")
-        print("Passed:", case_passed)
+        if case_passed and fail_closed_pass:
+            print("Passed: True (fail-closed: Qwen unavailable)")
+        else:
+            print("Passed:", case_passed)
 
         if not case_passed:
             print("Mismatch Details:")
@@ -337,6 +355,10 @@ def run_system_benchmark():
             print(" - Product correct:", product_correct)
             print(" - RAG correct:", rag_correct)
             print(" - Escalation correct:", escalation_correct)
+            print(
+                " - LLM status correct:", llm_status_correct,
+                f"(got {llm_status!r}, expected {case.get('acceptable_llm_status', ['success'])})",
+            )
 
     average_latency = (
         sum(latencies) / len(latencies)
@@ -350,6 +372,12 @@ def run_system_benchmark():
 
     print(f"Total Tests: {total}")
     print(f"Passed Tests: {successful_cases}/{total}")
+    if fail_closed_pass_count:
+        clean_passes = successful_cases - fail_closed_pass_count
+        print(
+            f"  ({clean_passes} clean pass{'es' if clean_passes != 1 else ''}, "
+            f"{fail_closed_pass_count} via fail-closed Qwen fallback)"
+        )
 
     print(
         f"Intent Accuracy: "
