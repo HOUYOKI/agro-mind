@@ -273,7 +273,7 @@ Result:"""
         response = requests.post(
             OLLAMA_URL,
             json=payload,
-            timeout=3,
+            timeout=10,
         )
         response.raise_for_status()
         result = response.json().get("response", "").strip().upper()
