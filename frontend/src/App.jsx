@@ -69,23 +69,24 @@ function displayDiagnosisLabel(value) {
   const text = safeText(value, "Unknown");
 
   const labelMap = {
-    玫瑰: "Rose",
-    黑斑病: "Black spot disease",
-    真菌病害: "Fungal disease",
-    番茄: "Tomato",
-    黄瓜: "Cucumber",
-    辣椒: "Pepper",
-    苹果: "Apple",
-    葡萄: "Grape",
-    水稻: "Rice",
-    小麦: "Wheat",
-    玉米: "Corn",
-    根腐: "Root rot",
-    叶斑病: "Leaf spot disease",
-    白粉病: "Powdery mildew",
-    炭疽病: "Anthracnose",
-    锈病: "Rust disease",
-  };
+  玫瑰: "Rose",
+  月季: "Rose",
+  黑斑病: "Black spot disease",
+  真菌病害: "Fungal disease",
+  番茄: "Tomato",
+  黄瓜: "Cucumber",
+  辣椒: "Pepper",
+  苹果: "Apple",
+  葡萄: "Grape",
+  水稻: "Rice",
+  小麦: "Wheat",
+  玉米: "Corn",
+  根腐: "Root rot",
+  叶斑病: "Leaf spot disease",
+  白粉病: "Powdery mildew",
+  炭疽病: "Anthracnose",
+  锈病: "Rust disease",
+};
 
   return labelMap[text] || text;
 }

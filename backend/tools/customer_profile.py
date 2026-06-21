@@ -1,10 +1,13 @@
 import json
+import sqlite3
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
-CUSTOMERS_FILE = Path(__file__).resolve().parents[1] / "data" / "customers.jsonl"
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"
+CUSTOMERS_DB = DATA_DIR / "customer_profiles.db"
 
 MAX_CROPS = 5
 MAX_ISSUES = 5
@@ -37,7 +40,7 @@ BAD_PRODUCT_VALUES = {
 
 def _default_profile(customer_id: str) -> Dict[str, Any]:
     return {
-        "customer_id": customer_id,
+        "customer_id": str(customer_id),
         "orders": [],
         "crops": [],
         "common_issues": [],
@@ -54,63 +57,241 @@ def _default_profile(customer_id: str) -> Dict[str, Any]:
     }
 
 
-def load_customers() -> List[Dict[str, Any]]:
-    customers = []
+def _connect() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(CUSTOMERS_DB)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _json_loads(value: Any, default: Any) -> Any:
+    if value is None or value == "":
+        return default
+
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def _bool_to_int(value: Any) -> int:
+    return 1 if bool(value) else 0
+
+
+def _int_to_bool(value: Any) -> bool:
+    return bool(int(value or 0))
+
+
+def init_customer_db() -> None:
+    with _connect() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS customer_profiles (
+                customer_id TEXT PRIMARY KEY,
+                orders TEXT NOT NULL DEFAULT '[]',
+                crops TEXT NOT NULL DEFAULT '[]',
+                common_issues TEXT NOT NULL DEFAULT '[]',
+                recommended_products TEXT NOT NULL DEFAULT '[]',
+                complaints_count INTEGER NOT NULL DEFAULT 0,
+                escalations_count INTEGER NOT NULL DEFAULT 0,
+                human_escalation_requested INTEGER NOT NULL DEFAULT 0,
+                escalation_case_ids TEXT NOT NULL DEFAULT '[]',
+                preferred_language TEXT,
+                last_interaction TEXT,
+                profile_summary TEXT NOT NULL DEFAULT '',
+                customer_segment TEXT NOT NULL DEFAULT 'Regular',
+                upsell_opportunity INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+
+
+def _row_to_profile(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "customer_id": row["customer_id"],
+        "orders": _json_loads(row["orders"], []),
+        "crops": _json_loads(row["crops"], []),
+        "common_issues": _json_loads(row["common_issues"], []),
+        "recommended_products": _json_loads(row["recommended_products"], []),
+        "complaints_count": int(row["complaints_count"] or 0),
+        "escalations_count": int(row["escalations_count"] or 0),
+        "human_escalation_requested": _int_to_bool(
+            row["human_escalation_requested"]
+        ),
+        "escalation_case_ids": _json_loads(row["escalation_case_ids"], []),
+        "preferred_language": row["preferred_language"],
+        "last_interaction": row["last_interaction"],
+        "profile_summary": row["profile_summary"] or "",
+        "customer_segment": row["customer_segment"] or "Regular",
+        "upsell_opportunity": _int_to_bool(row["upsell_opportunity"]),
+    }
+
+
+def _insert_or_replace_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    init_customer_db()
+
+    now = datetime.now().isoformat(timespec="seconds")
+    customer_id = str(profile.get("customer_id"))
+
+    with _connect() as connection:
+        existing = connection.execute(
+            "SELECT created_at FROM customer_profiles WHERE customer_id = ?",
+            (customer_id,),
+        ).fetchone()
+
+        created_at = existing["created_at"] if existing else now
+
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO customer_profiles (
+                customer_id,
+                orders,
+                crops,
+                common_issues,
+                recommended_products,
+                complaints_count,
+                escalations_count,
+                human_escalation_requested,
+                escalation_case_ids,
+                preferred_language,
+                last_interaction,
+                profile_summary,
+                customer_segment,
+                upsell_opportunity,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                customer_id,
+                _json_dumps(profile.get("orders", [])),
+                _json_dumps(profile.get("crops", [])),
+                _json_dumps(profile.get("common_issues", [])),
+                _json_dumps(profile.get("recommended_products", [])),
+                int(profile.get("complaints_count", 0)),
+                int(profile.get("escalations_count", 0)),
+                _bool_to_int(profile.get("human_escalation_requested", False)),
+                _json_dumps(profile.get("escalation_case_ids", [])),
+                profile.get("preferred_language"),
+                profile.get("last_interaction"),
+                profile.get("profile_summary", ""),
+                profile.get("customer_segment", "Regular"),
+                _bool_to_int(profile.get("upsell_opportunity", False)),
+                created_at,
+                now,
+            ),
+        )
+        connection.commit()
+
+    return profile
+
+
+def migrate_customers_jsonl_to_sqlite() -> None:
+    """
+    One-time migration from backend/data/customers.jsonl into SQLite.
+    Safe to run multiple times because customer_id is the primary key.
+    """
+    init_customer_db()
 
     if not CUSTOMERS_FILE.exists():
-        return customers
+        return
 
     with open(CUSTOMERS_FILE, "r", encoding="utf-8") as file:
         for line in file:
-            if line.strip():
-                customers.append(json.loads(line))
+            if not line.strip():
+                continue
 
-    return customers
+            try:
+                profile = json.loads(line)
+            except Exception:
+                continue
+
+            if not profile.get("customer_id"):
+                continue
+
+            base = _default_profile(str(profile.get("customer_id")))
+            base.update(profile)
+            _insert_or_replace_profile(base)
+
+
+def _ensure_ready() -> None:
+    init_customer_db()
+
+    # If DB is empty and old JSONL exists, migrate automatically.
+    with _connect() as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) AS total FROM customer_profiles"
+        ).fetchone()["total"]
+
+    if count == 0 and CUSTOMERS_FILE.exists():
+        migrate_customers_jsonl_to_sqlite()
+
+
+def load_customers() -> List[Dict[str, Any]]:
+    _ensure_ready()
+
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM customer_profiles ORDER BY customer_id"
+        ).fetchall()
+
+    return [_row_to_profile(row) for row in rows]
 
 
 def save_customers(customers: List[Dict[str, Any]]) -> None:
-    CUSTOMERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    """
+    Keeps old function name for compatibility.
+    Replaces all SQLite profiles with the provided list.
+    """
+    init_customer_db()
 
-    with open(CUSTOMERS_FILE, "w", encoding="utf-8") as file:
-        for customer in customers:
-            file.write(json.dumps(customer, ensure_ascii=False) + "\n")
+    with _connect() as connection:
+        connection.execute("DELETE FROM customer_profiles")
+        connection.commit()
+
+    for customer in customers:
+        if customer.get("customer_id"):
+            base = _default_profile(str(customer.get("customer_id")))
+            base.update(customer)
+            _insert_or_replace_profile(base)
 
 
 def get_customer_profile(customer_id: str) -> Optional[Dict[str, Any]]:
-    customers = load_customers()
+    _ensure_ready()
 
-    for customer in customers:
-        if str(customer.get("customer_id")) == str(customer_id):
-            return customer
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM customer_profiles WHERE customer_id = ?",
+            (str(customer_id),),
+        ).fetchone()
 
-    return None
+    if row is None:
+        return None
+
+    return _row_to_profile(row)
 
 
 def create_profile(customer_id: str) -> Dict[str, Any]:
-    customers = load_customers()
-    profile = _default_profile(customer_id)
-
-    customers.append(profile)
-    save_customers(customers)
-
+    profile = _default_profile(str(customer_id))
+    _insert_or_replace_profile(profile)
     return profile
 
 
 def save_customer_profile(customer_id: str, profile: Dict[str, Any]) -> Dict[str, Any]:
-    customers = load_customers()
-    updated = False
+    base = _default_profile(str(customer_id))
+    base.update(profile)
+    base["customer_id"] = str(customer_id)
 
-    for index, customer in enumerate(customers):
-        if str(customer.get("customer_id")) == str(customer_id):
-            customers[index] = profile
-            updated = True
-            break
-
-    if not updated:
-        customers.append(profile)
-
-    save_customers(customers)
-    return profile
+    _insert_or_replace_profile(base)
+    return base
 
 
 def _is_garbled_text(value: str) -> bool:
@@ -241,7 +422,7 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
     profile = get_customer_profile(customer_id)
 
     if profile is None:
-        profile = _default_profile(customer_id)
+        profile = _default_profile(str(customer_id))
 
     profile.setdefault("orders", [])
     profile.setdefault("crops", [])
@@ -261,7 +442,10 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
 
     # Clean old polluted values every time the profile updates.
     profile["crops"] = _compact_profile_list(profile.get("crops", []), MAX_CROPS)
-    profile["common_issues"] = _compact_profile_list(profile.get("common_issues", []), MAX_ISSUES)
+    profile["common_issues"] = _compact_profile_list(
+        profile.get("common_issues", []),
+        MAX_ISSUES,
+    )
     profile["recommended_products"] = _compact_profile_list(
         profile.get("recommended_products", []),
         MAX_PRODUCTS,
@@ -325,7 +509,7 @@ def update_customer_profile(customer_id: str, update_data: Dict[str, Any]) -> Di
         profile["customer_segment"] = "Regular"
         profile["upsell_opportunity"] = False
 
-    save_customer_profile(customer_id, profile)
+    save_customer_profile(str(customer_id), profile)
 
     return profile
 
