@@ -45,9 +45,6 @@ SYSTEM_PROMPT = (
 def detect_language(text: str) -> str:
     text = text or ""
 
-    if re.search(r"[\u0600-\u06FF]", text):
-        return "Arabic"
-
     if re.search(r"[\u4E00-\u9FFF]", text):
         return "Chinese"
 
