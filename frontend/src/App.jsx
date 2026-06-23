@@ -23,7 +23,6 @@ import {
 import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000/chat";
-const DIAGNOSE_URL = "http://127.0.0.1:8000/diagnose";
 const HUMAN_ESCALATION_URL = "http://127.0.0.1:8000/human-escalation";
 const ESCALATIONS_URL = "http://127.0.0.1:8000/escalations";
 
@@ -112,7 +111,6 @@ function getImageDiagnosisObject(data) {
   return {};
 }
 
-// Typing dots component
 function TypingDots() {
   return (
     <span className="typing-dots" aria-label="Typing">
@@ -134,9 +132,11 @@ function App() {
   const [reviewNotes, setReviewNotes] = useState({});
   const [isTyping, setIsTyping] = useState(false);
   const [typingMessageId, setTypingMessageId] = useState(null);
+  const [selectedImage, setSelectedImage] = useState(null);
 
   const chatEndRef = useRef(null);
   const typingIntervalRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   const [messages, setMessages] = useState([
     {
@@ -151,14 +151,13 @@ function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Fake typing effect — streams the full response char by char
   function startTyping(fullText, messageId) {
     setIsTyping(true);
     setTypingMessageId(messageId);
 
     let index = 0;
-    const CHUNK = 4; // chars per tick — tune for speed
-    const INTERVAL = 18; // ms per tick
+    const CHUNK = 4;
+    const INTERVAL = 18;
 
     if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
 
@@ -186,13 +185,20 @@ function App() {
   }
 
   async function sendMessage(customMessage = null) {
-    const textToSend = customMessage || message;
-    if (!textToSend.trim()) return;
+    const textToSend = customMessage ?? message;
+    const cleanText = textToSend.trim();
+    const imageToSend = selectedImage;
+
+    if (!cleanText && !imageToSend) return;
+
+    const userMessageText = imageToSend
+      ? `${cleanText || "Please diagnose this crop image."}\n\n📷 ${imageToSend.name}`
+      : cleanText;
 
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      text: textToSend,
+      text: userMessageText,
       done: true,
     };
 
@@ -200,11 +206,18 @@ function App() {
     setMessage("");
     setLoading(true);
 
+    const formData = new FormData();
+    formData.append("customer_id", customerId);
+    formData.append("message", cleanText);
+
+    if (imageToSend) {
+      formData.append("image", imageToSend);
+    }
+
     try {
       const response = await fetch(API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: customerId, message: textToSend }),
+        body: formData,
       });
 
       if (!response.ok) {
@@ -214,13 +227,12 @@ function App() {
       }
 
       const data = await response.json();
-      // Update side panel immediately — don't wait for typing to finish
+
       setLatestResult(data);
 
       const fullText = data.response || buildFriendlyResponse(data);
       const msgId = `assistant-${Date.now()}`;
 
-      // Insert placeholder message — typing will fill it in
       const assistantMessage = {
         id: msgId,
         role: "assistant",
@@ -229,6 +241,12 @@ function App() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+      setSelectedImage(null);
+
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+      }
+
       setLoading(false);
       startTyping(fullText, msgId);
     } catch (error) {
@@ -239,166 +257,24 @@ function App() {
         text: "I couldn't connect to the Agro-Mind backend. Make sure FastAPI is running on http://127.0.0.1:8000.",
         done: true,
       };
+
       setMessages((prev) => [...prev, errorMessage]);
       setLoading(false);
     }
   }
 
-  async function handleImageUpload(event) {
+  function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    event.target.value = null;
 
-    const userMessage = {
-      id: `user-img-${Date.now()}`,
-      role: "user",
-      text: `📷 ${file.name}`,
-      done: true,
-    };
+    setSelectedImage(file);
+  }
 
-    setMessages((prev) => [...prev, userMessage]);
-    setLoading(true);
+  function clearSelectedImage() {
+    setSelectedImage(null);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("customer_id", customerId);
-
-    try {
-      const response = await fetch(DIAGNOSE_URL, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Diagnose API Error:", response.status, errorText);
-        throw new Error(`Backend returned ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log("Diagnosis response:", data);
-
-      const diagnosisObject = getImageDiagnosisObject(data);
-
-      const detectedCrop = displayDiagnosisLabel(
-        data.crop || data.detected_crop || diagnosisObject.crop
-      );
-      const detectedDisease = displayDiagnosisLabel(
-        data.disease ||
-          data.condition ||
-          data.detected_issue ||
-          diagnosisObject.disease ||
-          data.diagnosis
-      );
-      const detectedDiseaseType = displayDiagnosisLabel(
-        data.disease_type || diagnosisObject.disease_type || "Not available"
-      );
-
-      const confidenceRaw =
-        typeof data.confidence === "number"
-          ? data.confidence
-          : Number(data.confidence || diagnosisObject.confidence || 0);
-      const confidence =
-        confidenceRaw > 1
-          ? Math.round(confidenceRaw)
-          : Math.round(confidenceRaw * 100);
-
-      const symptoms = safeText(
-        data.symptoms || data.explanation || data.description,
-        "Not available"
-      );
-      const customerFacingResponse = safeText(
-        data.response ||
-          data.customer_response ||
-          data.safe_response ||
-          data.recommendation ||
-          data.recommendation_hint,
-        "No direct product recommendation was shown. Human review may be required."
-      );
-
-      let recommendedProduct = null;
-      if (data.best_product) {
-        recommendedProduct =
-          data.best_product.product_name ||
-          data.best_product.product_name_en ||
-          data.best_product.name ||
-          null;
-      }
-      if (!recommendedProduct && Array.isArray(data.recommended_products)) {
-        recommendedProduct =
-          data.recommended_products[0]?.product_name ||
-          data.recommended_products[0]?.product_name_en ||
-          data.recommended_products[0]?.name ||
-          null;
-      }
-      recommendedProduct = safeText(recommendedProduct, "");
-
-      let responseText = `📷 Image Diagnosis Complete:\n\n`;
-      responseText += `Crop: ${detectedCrop}\n\n`;
-      responseText += `Disease: ${detectedDisease}\n\n`;
-      responseText += `Disease type: ${detectedDiseaseType}\n\n`;
-      responseText += `Confidence: ${confidence}%\n\n`;
-      responseText += `Severity: ${safeText(data.severity, "Not available")}\n\n`;
-      responseText += `Symptoms: ${symptoms}\n\n`;
-      responseText += `Recommendation: ${customerFacingResponse}`;
-      if (recommendedProduct) responseText += `\n\nSuggested product: ${recommendedProduct}`;
-      if (data.escalation_case_id) responseText += `\n\nHuman review case: ${data.escalation_case_id}`;
-
-      const msgId = `assistant-diag-${Date.now()}`;
-      const assistantMessage = {
-        id: msgId,
-        role: "assistant",
-        text: "",
-        done: false,
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      setLatestResult({
-        ...data,
-        intent: "image_diagnosis",
-        risk_level:
-          data.risk_level ||
-          (data.needs_human_review || data.human_review_required
-            ? "medium"
-            : "low"),
-        detected_crop: detectedCrop,
-        detected_issue: detectedDisease,
-        recommended_product: recommendedProduct || null,
-        product_reason: customerFacingResponse || "Image diagnosis completed.",
-        escalation_required: Boolean(
-          data.escalation_required ||
-            data.needs_human_review ||
-            data.human_review_required
-        ),
-        execution_trace: data.execution_trace || [
-          { step: 1, task: "Upload crop image", status: "completed", result: file.name },
-          { step: 2, task: "Run image diagnosis tool", status: "completed", result: detectedDisease },
-          {
-            step: 3,
-            task: "Check confidence and escalation",
-            status: "completed",
-            result:
-              data.needs_human_review || data.human_review_required
-                ? "Human review required"
-                : "No immediate escalation",
-          },
-        ],
-      });
-
-      setLoading(false);
-      startTyping(responseText, msgId);
-    } catch (error) {
-      console.error("Image Upload Error:", error);
-      const errorMessage = {
-        id: `err-${Date.now()}`,
-        role: "assistant",
-        error: true,
-        text: `Image diagnosis failed: ${error.message}`,
-        done: true,
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      setLoading(false);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
     }
   }
 
@@ -501,8 +377,15 @@ function App() {
           "No order information was available."
         );
       }
-      if (data.case_saved) response += `\n\nCase saved: Yes #${safeText(data.case_id)}`;
-      if (data.escalation_case_id) response += `\nHuman review case: ${safeText(data.escalation_case_id)}`;
+
+      if (data.case_saved) {
+        response += `\n\nCase saved: Yes #${safeText(data.case_id)}`;
+      }
+
+      if (data.escalation_case_id) {
+        response += `\nHuman review case: ${safeText(data.escalation_case_id)}`;
+      }
+
       return response;
     }
 
@@ -533,8 +416,13 @@ function App() {
       ? "Escalation: Human expert review is recommended."
       : "Escalation: No human escalation needed right now.";
 
-    if (data.case_saved) response += `\nCase saved: Yes #${safeText(data.case_id)}`;
-    if (data.escalation_case_id) response += `\nHuman review case: ${safeText(data.escalation_case_id)}`;
+    if (data.case_saved) {
+      response += `\nCase saved: Yes #${safeText(data.case_id)}`;
+    }
+
+    if (data.escalation_case_id) {
+      response += `\nHuman review case: ${safeText(data.escalation_case_id)}`;
+    }
 
     return response;
   }
@@ -554,12 +442,10 @@ function App() {
 
   return (
     <div className="app-shell">
-      {/* Ambient background glows */}
       <div className="glow glow-one" />
       <div className="glow glow-two" />
       <div className="glow glow-three" />
 
-      {/* ── Top bar ── */}
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -574,7 +460,10 @@ function App() {
         <nav className="topbar-nav">
           <button
             className={`nav-pill ${activeView === "chat" ? "nav-pill--active" : ""}`}
-            onClick={() => { setShowProfiles(false); setShowReviewQueue(false); }}
+            onClick={() => {
+              setShowProfiles(false);
+              setShowReviewQueue(false);
+            }}
           >
             <MessageSquare size={14} />
             Chat
@@ -582,7 +471,10 @@ function App() {
 
           <button
             className={`nav-pill ${activeView === "profiles" ? "nav-pill--active" : ""}`}
-            onClick={() => { setShowReviewQueue(false); setShowProfiles((p) => !p); }}
+            onClick={() => {
+              setShowReviewQueue(false);
+              setShowProfiles((p) => !p);
+            }}
           >
             <Users size={14} />
             Profiles
@@ -607,10 +499,12 @@ function App() {
         </nav>
       </header>
 
-      {/* ── Customer Profiles ── */}
-      {activeView === "profiles" && <CustomerProfile />}
+      {activeView === "profiles" && (
+        <main className="profiles-view-shell">
+          <CustomerProfile />
+        </main>
+      )}
 
-      {/* ── Human Review Queue ── */}
       {activeView === "review" && (
         <main className="review-layout">
           <section className="review-panel">
@@ -685,7 +579,9 @@ function App() {
 
                     <div className="review-field review-field--full">
                       <span>AI Response</span>
-                      <strong>{safeText(item.ai_response, "No AI response saved.")}</strong>
+                      <strong>
+                        {safeText(item.ai_response, "No AI response saved.")}
+                      </strong>
                     </div>
 
                     <textarea
@@ -715,10 +611,8 @@ function App() {
         </main>
       )}
 
-      {/* ── Main Chat Layout ── */}
       {activeView === "chat" && (
         <main className="main-layout">
-          {/* Left: Chat */}
           <section className="chat-card">
             <div className="chat-header">
               <div className="chat-header-text">
@@ -738,7 +632,6 @@ function App() {
               </div>
             </div>
 
-            {/* Customer ID */}
             <div className="customer-row">
               <label htmlFor="cid">Customer ID</label>
               <input
@@ -749,14 +642,15 @@ function App() {
               />
             </div>
 
-            {/* Messages */}
             <div className="chat-window">
               {messages.map((item) => (
                 <div
                   key={item.id}
                   className={`message-row ${item.role === "user" ? "user-row" : "assistant-row"} msg-fade-in`}
                 >
-                  <div className={`message-avatar ${item.role === "user" ? "avatar--user" : "avatar--bot"}`}>
+                  <div
+                    className={`message-avatar ${item.role === "user" ? "avatar--user" : "avatar--bot"}`}
+                  >
                     {item.role === "user" ? (
                       <UserRound size={15} />
                     ) : (
@@ -770,7 +664,6 @@ function App() {
                     } ${item.error ? "error-bubble" : ""}`}
                   >
                     <pre>{safeText(item.text, "")}</pre>
-                    {/* Cursor blink while this specific message is still typing */}
                     {!item.done && item.role === "assistant" && (
                       <span className="type-cursor" />
                     )}
@@ -778,7 +671,6 @@ function App() {
                 </div>
               ))}
 
-              {/* Spinner while waiting for backend response */}
               {loading && (
                 <div className="message-row assistant-row msg-fade-in">
                   <div className="message-avatar avatar--bot">
@@ -793,7 +685,6 @@ function App() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Example prompts */}
             <div className="examples">
               {examples.map((ex) => (
                 <button
@@ -808,14 +699,37 @@ function App() {
               ))}
             </div>
 
-            {/* Composer */}
+            {selectedImage && (
+              <div className="selected-image-chip">
+                <div className="selected-image-chip__icon">
+                  <ImagePlus size={15} />
+                </div>
+
+                <div className="selected-image-chip__text">
+                  <span>Image attached</span>
+                  <strong>{selectedImage.name}</strong>
+                </div>
+
+                <button
+                  type="button"
+                  className="selected-image-chip__remove"
+                  onClick={clearSelectedImage}
+                  disabled={loading || isTyping}
+                  aria-label="Remove selected image"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             <div className="composer">
               <label
                 className={`upload-btn ${loading || isTyping ? "upload-btn--disabled" : ""}`}
-                title="Upload crop image for diagnosis"
+                title="Attach crop image"
               >
                 <ImagePlus size={20} />
                 <input
+                  ref={imageInputRef}
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
@@ -840,7 +754,7 @@ function App() {
               <button
                 className="send-btn"
                 onClick={() => sendMessage()}
-                disabled={loading || isTyping}
+                disabled={loading || isTyping || (!message.trim() && !selectedImage)}
                 aria-label="Send"
               >
                 {loading ? (
@@ -852,7 +766,6 @@ function App() {
             </div>
           </section>
 
-          {/* Right: Agent Panel */}
           <aside className="agent-panel">
             <div className="panel-header">
               <div>
@@ -881,7 +794,6 @@ function App() {
 
             {latestResult && (
               <div className="panel-body">
-                {/* Metric grid */}
                 <div className="metric-grid">
                   <div className="metric-card">
                     <Brain size={18} />
@@ -945,7 +857,6 @@ function App() {
                   )}
                 </div>
 
-                {/* Customer memory */}
                 {latestResult.updated_customer_profile && (
                   <div className="decision-card">
                     <div className="decision-title">
@@ -984,7 +895,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Current decision */}
                 <div className="decision-card">
                   <div className="decision-title">
                     <CheckCircle2 size={16} />
@@ -1039,7 +949,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Execution trace */}
                 {latestResult.execution_trace?.length > 0 && (
                   <div className="decision-card">
                     <div className="decision-title">
@@ -1067,7 +976,6 @@ function App() {
                   </div>
                 )}
 
-                {/* High-risk warning */}
                 {latestResult.risk_level === "high" && (
                   <div className="warning-card warning-card--high">
                     <AlertTriangle size={18} />
@@ -1080,7 +988,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Escalation warning (medium) */}
                 {needsEscalation && latestResult.risk_level !== "high" && (
                   <div className="warning-card warning-card--medium">
                     <AlertTriangle size={18} />
@@ -1093,7 +1000,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Escalation CTA */}
                 {needsEscalation && (
                   <button className="btn-escalate" onClick={goToHumanEscalation}>
                     <UserRound size={16} />
@@ -1101,7 +1007,6 @@ function App() {
                   </button>
                 )}
 
-                {/* Raw JSON */}
                 <details className="json-card">
                   <summary>Raw backend JSON</summary>
                   <pre>{JSON.stringify(latestResult, null, 2)}</pre>
