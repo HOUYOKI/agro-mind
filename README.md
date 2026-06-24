@@ -89,13 +89,15 @@ npm run dev
 
 Frontend runs at `http://localhost:5173`
 
+> **Image upload via `/chat`:** The `/chat` endpoint accepts both JSON (`{"customer_id": "...", "message": "..."}`) and multipart FormData (`customer_id`, `message`, optional `image` file). When an image is included, the agent runs vision diagnosis as part of the normal graph flow. The standalone `/diagnose` endpoint also exists for direct image-only testing.
+
 ## Project Structure
 
 ```
 agro-mind/
 ├── backend/
 │   ├── main.py                   # FastAPI app, all HTTP endpoints
-│   ├── agent_graph.py            # LangGraph state machine (11 nodes)
+│   ├── agent_graph.py            # LangGraph state machine (12 nodes)
 │   ├── config.yaml               # LLM, embedding, RAG, and path config
 │   ├── data/
 │   │   ├── products.csv                        # Product catalogue
@@ -137,6 +139,7 @@ agro-mind/
 │   │   └── chromadb/             # ChromaDB persistence for RAG
 │   ├── vision/                   # Crop image diagnosis subsystem
 │   │   ├── diagnosis_tool.py
+│   │   ├── config.py             # Pydantic config loader for vision system
 │   │   ├── embeddings.py
 │   │   ├── image_embeddings.py
 │   │   ├── image_retriever.py
@@ -148,6 +151,7 @@ agro-mind/
 │   └── system_benchmark.py       # End-to-end benchmark runner
 ├── frontend/
 │   ├── src/
+│   │   ├── main.jsx              # React entry point
 │   │   ├── App.jsx               # Main chat UI
 │   │   ├── CustomerProfile.jsx   # Customer profile panel
 │   │   ├── App.css
@@ -188,7 +192,7 @@ Tracing is optional. Set `LANGCHAIN_TRACING_V2=false` to run without a LangSmith
 
 - **`backend/rag_v3/__init__.py` and `backend/rag_v3/src/__init__.py`** — both are 0-byte files. They are valid Python package markers and require no content, but are noted here for completeness.
 
-- **`backend/data/agro_mind.db` is committed** — the `.gitignore` instructs it to be excluded but the file is present in the repository. This is a local SQLite database that is auto-created on backend startup; it should not be in version control.
+- **`backend/database/agro_mind.db` is committed** — the `.gitignore` instructs it to be excluded but the file is present in the repository. This is a local SQLite database that is auto-created on backend startup; it should not be in version control.
 
 - **Customer ID is not authenticated** — the `customer_id` field in the chat UI is a free-text input for demo/testing only. In production, this must come from a real authentication system (JWT, session, etc.).
 
