@@ -181,24 +181,39 @@ def default_image_result() -> Dict[str, Any]:
     return {
         "image_uploaded": False,
         "status": "skipped",
+        "success": None,
+        "vision_used": False,
+
         "crop": None,
         "detected_crop": None,
         "plant": None,
         "disease": None,
-        "diagnosis": None,
         "possible_disease": None,
         "predicted_class": None,
+
+        # Can be nested dict from diagnosis_tool.py
+        "diagnosis": None,
+
         "confidence": 0.0,
         "score": None,
         "severity": None,
         "symptoms": None,
         "visual_symptoms": None,
+
         "recommendation_hint": None,
         "recommendation": None,
         "safe_response": None,
+        "response": None,
+
+        "best_product": None,
+        "recommended_products": [],
+        "debug_best_product": None,
+        "debug_recommended_products": [],
+
         "human_review_required": False,
         "needs_human_review": False,
         "escalation_required": False,
+
         "reason": "Image diagnosis not used.",
     }
 
@@ -252,20 +267,186 @@ def normalize_intent(raw_intent: str) -> str:
     return mapping.get(value, "general_question")
 
 
+# ==========================================
+# IMAGE HELPERS
+# ==========================================
+
+_IMAGE_LABEL_TRANSLATIONS = {
+    "玫瑰": "rose",
+    "月季": "rose",
+    "黑斑病": "black spot disease",
+    "苹果": "apple",
+    "苹果树": "apple tree",
+    "轮纹病": "ring rot disease",
+    "番茄": "tomato",
+    "早疫病": "early blight",
+    "柑橘": "citrus",
+    "疮痂病": "scab disease",
+    "炭疽病": "anthracnose",
+    "白粉病": "powdery mildew",
+    "霜霉病": "downy mildew",
+    "灰霉病": "gray mold",
+    "根腐": "root rot",
+    "根腐病": "root rot",
+    "叶斑病": "leaf spot disease",
+    "软腐病": "soft rot",
+    "溃疡病": "canker disease",
+    "真菌病害": "fungal disease",
+    "细菌病害": "bacterial disease",
+    "虫害": "pest damage",
+    "锈病": "rust disease",
+}
+
+
+def _translate_image_label(value):
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        return _IMAGE_LABEL_TRANSLATIONS.get(value, value)
+
+    if isinstance(value, list):
+        return [_translate_image_label(item) for item in value]
+
+    return value
+
+
 def _image_value(image_result: Dict[str, Any], *keys):
+    """
+    Read a value from a dictionary.
+
+    Important:
+    Skip nested dictionaries. diagnosis_tool.py returns image_result["diagnosis"]
+    as a dictionary, so returning that as a disease string is wrong.
+    """
+    if not isinstance(image_result, dict):
+        return None
+
     for key in keys:
         value = image_result.get(key)
-        if value not in [None, "", [], {}]:
-            return value
+
+        if value in [None, "", [], {}]:
+            continue
+
+        if isinstance(value, dict):
+            continue
+
+        return value
+
     return None
 
 
+def _image_diagnosis_dict(image_result: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(image_result, dict):
+        return {}
+
+    diagnosis = image_result.get("diagnosis")
+    return diagnosis if isinstance(diagnosis, dict) else {}
+
+
+def _image_value_nested(image_result: Dict[str, Any], *keys):
+    """
+    Check top-level image_result first, then nested image_result["diagnosis"].
+
+    This fixes the issue where diagnosis_tool.py returns:
+        {
+          "diagnosis": {
+             "crop": "...",
+             "disease": "...",
+             "confidence": ...
+          }
+        }
+    """
+    value = _image_value(image_result, *keys)
+
+    if value not in [None, "", [], {}]:
+        return value
+
+    diagnosis = _image_diagnosis_dict(image_result)
+    return _image_value(diagnosis, *keys)
+
+
+def _image_crop(image_result: Dict[str, Any]):
+    return _translate_image_label(
+        _image_value_nested(
+            image_result,
+            "crop",
+            "detected_crop",
+            "plant",
+        )
+    )
+
+
+def _image_issue(image_result: Dict[str, Any]):
+    return _translate_image_label(
+        _image_value_nested(
+            image_result,
+            "disease",
+            "possible_disease",
+            "predicted_class",
+            "disease_type",
+            "issue",
+        )
+    )
+
+
+def _image_confidence(image_result: Dict[str, Any]):
+    return _image_value_nested(
+        image_result,
+        "confidence",
+        "score",
+        "similarity",
+    )
+
+
+def _image_symptoms(image_result: Dict[str, Any]):
+    return _translate_image_label(
+        _image_value_nested(
+            image_result,
+            "symptoms",
+            "visual_symptoms",
+        )
+    )
+
+
+def _image_safe_response(image_result: Dict[str, Any]):
+    return _image_value(
+        image_result,
+        "response",
+        "safe_response",
+        "customer_response",
+        "recommendation_hint",
+        "recommendation",
+    )
+
+
 def _image_needs_review(image_result: Dict[str, Any]) -> bool:
+    if not isinstance(image_result, dict):
+        return False
+
+    diagnosis = _image_diagnosis_dict(image_result)
+
     return bool(
         image_result.get("needs_human_review")
         or image_result.get("human_review_required")
         or image_result.get("escalation_required")
+        or diagnosis.get("needs_human_review")
+        or diagnosis.get("human_review_required")
+        or diagnosis.get("escalation_required")
     )
+
+
+def _force_language_from_customer_message(message: str) -> str:
+    """
+    Response language must be based on the raw user message only.
+
+    Image-only upload means message is empty, so default to English.
+    Do not infer Chinese from image/RAG/tool data.
+    """
+    if re.search(r"[\u4E00-\u9FFF]", message or ""):
+        return "Chinese"
+
+    return "English"
 
 
 def build_message_for_tools(message: str, image_result: Dict[str, Any]) -> str:
@@ -279,16 +460,10 @@ def build_message_for_tools(message: str, image_result: Dict[str, Any]) -> str:
     if not image_result.get("image_uploaded"):
         return message or ""
 
-    crop = _image_value(image_result, "crop", "detected_crop", "plant")
-    disease = _image_value(
-        image_result,
-        "disease",
-        "diagnosis",
-        "possible_disease",
-        "predicted_class",
-    )
-    symptoms = _image_value(image_result, "symptoms", "visual_symptoms")
-    confidence = _image_value(image_result, "confidence", "score")
+    crop = _image_crop(image_result)
+    disease = _image_issue(image_result)
+    symptoms = _image_symptoms(image_result)
+    confidence = _image_confidence(image_result)
 
     image_context = (
         "Uploaded crop image analysis. "
@@ -344,7 +519,11 @@ def image_diagnosis_node(state: AgroState) -> AgroState:
         )
 
     try:
-        result = diagnose_crop_image(image_path) or {}
+        result = diagnose_crop_image(
+            image_path=image_path,
+            user_text=state.get("message", ""),
+        ) or {}
+
         result["image_uploaded"] = True
         result["status"] = result.get("status", "completed")
 
@@ -360,15 +539,9 @@ def image_diagnosis_node(state: AgroState) -> AgroState:
             task="Run image diagnosis if image uploaded",
             status="completed",
             result={
-                "crop": _image_value(result, "crop", "detected_crop", "plant"),
-                "disease": _image_value(
-                    result,
-                    "disease",
-                    "diagnosis",
-                    "possible_disease",
-                    "predicted_class",
-                ),
-                "confidence": _image_value(result, "confidence", "score"),
+                "crop": _image_crop(result),
+                "disease": _image_issue(result),
+                "confidence": _image_confidence(result),
                 "human_review_required": _image_needs_review(result),
             },
         )
@@ -652,20 +825,18 @@ def build_rule_based_response(state: AgroState) -> str:
         return order_result.get("reason") or "I could not find this order."
 
     if image_result.get("image_uploaded"):
-        image_issue = _image_value(
-            image_result,
-            "disease",
-            "diagnosis",
-            "possible_disease",
-            "predicted_class",
-        )
-        image_crop = _image_value(image_result, "crop", "detected_crop", "plant")
-        image_confidence = _image_value(image_result, "confidence", "score")
+        safe_image_response = _image_safe_response(image_result)
+        if safe_image_response:
+            return safe_image_response
+
+        image_issue = _image_issue(image_result)
+        image_crop = _image_crop(image_result)
+        image_confidence = _image_confidence(image_result)
 
         if image_issue:
+            crop_phrase = f" on {image_crop}" if image_crop else ""
             return (
-                f"The uploaded image may show {image_issue}"
-                f"{f' on {image_crop}' if image_crop else ''}. "
+                f"The uploaded image may show {image_issue}{crop_phrase}. "
                 f"Confidence: {image_confidence}. "
                 "Please treat this as a possible diagnosis, not a final confirmation. "
                 "A human agronomist should confirm the issue before pesticide or treatment decisions."
@@ -707,6 +878,8 @@ def generate_response_node(state: AgroState) -> AgroState:
             result="Injection override pattern detected — LLM call skipped",
         )
 
+    response_language = _force_language_from_customer_message(message)
+
     final_prompt = f"""
 You are writing the final customer-facing chatbot response for Agro-Mind, an agricultural support platform.
 
@@ -734,14 +907,14 @@ Safety checker:
 Image diagnosis:
 - Image uploaded: {image_result.get("image_uploaded")}
 - Status: {image_result.get("status")}
-- Crop: {_image_value(image_result, "crop", "detected_crop", "plant")}
-- Disease/diagnosis: {_image_value(image_result, "disease", "diagnosis", "possible_disease", "predicted_class")}
-- Confidence: {_image_value(image_result, "confidence", "score")}
-- Severity: {_image_value(image_result, "severity")}
-- Symptoms: {_image_value(image_result, "symptoms", "visual_symptoms")}
-- Recommendation hint: {_image_value(image_result, "recommendation_hint", "recommendation", "safe_response")}
+- Crop: {_image_crop(image_result)}
+- Disease/diagnosis: {_image_issue(image_result)}
+- Confidence: {_image_confidence(image_result)}
+- Severity: {_image_value_nested(image_result, "severity")}
+- Symptoms: {_image_symptoms(image_result)}
+- Safe image response: {_image_safe_response(image_result)}
 - Image review required: {_image_needs_review(image_result)}
-- Image reason: {image_result.get("reason")}
+- Image reason: {image_result.get("reason") or image_result.get("message")}
 
 Product recommender:
 - Detected crop: {product_result.get("detected_crop")}
@@ -772,10 +945,11 @@ Write the final answer.
 
 LANGUAGE RULE:
 This system supports English and Chinese ONLY.
-If the customer message is in English, respond in English.
-If the customer message is in Chinese (Mandarin/Simplified/Traditional), respond in Chinese.
-If the customer message is in any other language (Arabic, French, Spanish, etc.), respond in English only.
-Never respond in Arabic or any unsupported language, even if the message appears to be in that language.
+The selected response language is: {response_language}.
+Respond ONLY in the selected response language.
+If the customer message is empty because the user uploaded only an image, respond in English.
+Tool results may contain Chinese crop names, disease names, product names, or source text. Do NOT switch to Chinese because of tool results.
+If the selected response language is English, translate or paraphrase any Chinese tool labels into English when possible.
 Do not mention this language rule to the customer.
 
 CONTENT RULES:
@@ -797,10 +971,16 @@ CONTENT RULES:
 16. If an image was uploaded, use the image diagnosis as supporting evidence, not as a guaranteed final diagnosis.
 17. Mention low confidence or human review when Image review required is True.
 18. If the customer uploaded an image but gave little text, still answer based on the image diagnosis result and ask for crop/symptom confirmation.
+19. If Safe image response is available and relevant, you may use it as the main basis of the answer, but keep the selected response language.
 """
 
     try:
-        llm_response = ask_agro_mind(final_prompt, original_user_message=message)
+        llm_response = ask_agro_mind(
+            final_prompt,
+            original_user_message=message,
+            force_language=response_language,
+        )
+
         if any(marker in llm_response.lower() for marker in _OUTPUT_INJECTION_MARKERS):
             print("INJECTION OUTPUT-FILTER: discarding LLM response containing injection marker")
             state["ai_response"] = _INJECTION_SAFE_RESPONSE
@@ -836,7 +1016,7 @@ def save_case_node(state: AgroState) -> AgroState:
 
     detected_issue = (
         state["product_result"].get("detected_issue")
-        or _image_value(image_result, "disease", "diagnosis", "possible_disease", "predicted_class")
+        or _image_issue(image_result)
     )
 
     saved_case = save_case(
@@ -865,12 +1045,12 @@ def update_customer_profile_node(state: AgroState) -> AgroState:
 
     crop = (
         state["product_result"].get("detected_crop")
-        or _image_value(image_result, "crop", "detected_crop", "plant")
+        or _image_crop(image_result)
     )
 
     possible_issue = (
         state["product_result"].get("detected_issue")
-        or _image_value(image_result, "disease", "diagnosis", "possible_disease", "predicted_class")
+        or _image_issue(image_result)
     )
 
     updated_profile = update_customer_profile(
@@ -887,13 +1067,7 @@ def update_customer_profile_node(state: AgroState) -> AgroState:
             "human_escalation_requested": state["safety_result"].get("escalation_required", False),
             "escalation_required": state["safety_result"].get("escalation_required", False),
             "last_image_uploaded": image_result.get("image_uploaded", False),
-            "last_image_diagnosis": _image_value(
-                image_result,
-                "disease",
-                "diagnosis",
-                "possible_disease",
-                "predicted_class",
-            ),
+            "last_image_diagnosis": _image_issue(image_result),
         },
     )
     state["updated_customer_profile"] = updated_profile
@@ -997,20 +1171,9 @@ def run_agro_graph(
     order_result = result.get("order_result", default_order_result())
     image_result = result.get("image_result", default_image_result())
 
-    detected_crop = product_result.get("detected_crop") or _image_value(
-        image_result,
-        "crop",
-        "detected_crop",
-        "plant",
-    )
+    detected_crop = product_result.get("detected_crop") or _image_crop(image_result)
 
-    detected_issue = product_result.get("detected_issue") or _image_value(
-        image_result,
-        "disease",
-        "diagnosis",
-        "possible_disease",
-        "predicted_class",
-    )
+    detected_issue = product_result.get("detected_issue") or _image_issue(image_result)
 
     human_review_required = bool(
         safety_result.get("escalation_required", False)
