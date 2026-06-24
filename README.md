@@ -1,136 +1,188 @@
 # Agro-Mind
 
-Agro-Mind is an AI-powered agricultural customer support assistant built for a bootcamp client project.
+## Project Summary
 
-The system helps agricultural customers with crop issue questions, pesticide safety concerns, product recommendations, order lookup, escalation detection, and support case saving.
+Agro-Mind is an AI-powered agricultural customer support assistant. Farmers and agricultural workers submit text questions or crop images through a React chat interface; a LangGraph 11-node state machine on the backend classifies intent, checks safety risk, retrieves agronomy knowledge from a RAG knowledge base, queries product and order data, and generates a response using a locally-running Ollama LLM. High-risk or low-confidence cases are automatically escalated to a human agent queue.
 
-## Current MVP
+## Requirements
 
-The current version includes:
+| Requirement | Version / Notes |
+|-------------|----------------|
+| Python | 3.10+ |
+| Node.js | 18+ |
+| npm | 9+ |
+| [Ollama](https://ollama.com/) | Must be running locally on `http://localhost:11434` |
+| Ollama model: `qwen2.5:7b-instruct` | Used for LLM responses, intent classification, and safety checking |
+| Ollama model: `bge-m3` | Used for text embedding (RAG retrieval) |
+| CLIP `ViT-B/32` | Downloaded automatically by `sentence-transformers` / `open_clip` on first run |
+| LangSmith account | Optional — required only if tracing is enabled via `LANGCHAIN_TRACING_V2=true` |
 
-- React chatbot frontend
-- FastAPI backend
-- Intent classification
-- Safety risk checking
-- Product recommendation from mock CSV data
-- Order/logistics lookup from mock CSV data
-- SQLite case saving
-- Duplicate case protection for repeated messages
-- Agent analysis panel showing intent, risk, product/order details, escalation, and case ID
+## Installation
 
-## Tech Stack
+**1. Pull required Ollama models** (Ollama must already be installed and running):
 
-### Frontend
+```bash
+ollama pull qwen2.5:7b-instruct
+ollama pull bge-m3
+```
 
-- React
-- Vite
-- Lucide React icons
-- CSS
+**2. Create and activate a Python virtual environment:**
 
-### Backend
+```bash
+# From the project root (agro-mind/)
+python -m venv .venv
 
-- Python
-- FastAPI
-- Pandas
-- SQLAlchemy
-- SQLite
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
+source .venv/bin/activate
+```
+
+**3. Install Python dependencies:**
+
+```bash
+pip install -r requirements.txt
+```
+
+**4. Install frontend dependencies:**
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+**5. Configure environment variables:**
+
+Copy the example below into a `.env` file at the project root and fill in your values:
+
+```
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=lsv2_pt_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX_XXXXXXXXXXXXXXXX
+LANGCHAIN_PROJECT=Agro-Mind
+```
+
+Set `LANGCHAIN_TRACING_V2=false` to disable LangSmith tracing entirely (the API key is then unused).
+
+## Run the Project
+
+Open **two separate terminals** from the project root.
+
+**Terminal 1 — Backend:**
+
+```bash
+# Windows (activate venv first)
+.venv\Scripts\activate
+uvicorn backend.main:app --reload
+```
+
+Backend runs at `http://127.0.0.1:8000`  
+API docs: `http://127.0.0.1:8000/docs`
+
+**Terminal 2 — Frontend:**
+
+```bash
+cd frontend
+npm run dev
+```
+
+Frontend runs at `http://localhost:5173`
 
 ## Project Structure
 
-```text
+```
 agro-mind/
 ├── backend/
-│   ├── main.py
+│   ├── main.py                   # FastAPI app, all HTTP endpoints
+│   ├── agent_graph.py            # LangGraph state machine (11 nodes)
+│   ├── config.yaml               # LLM, embedding, RAG, and path config
 │   ├── data/
-│   │   ├── products.csv
-│   │   └── orders.csv
+│   │   ├── products.csv          # Product catalogue
+│   │   ├── orders.jsonl          # Order records
+│   │   ├── escalations.jsonl     # Escalation log
+│   │   ├── customers.jsonl       # Customer profile store
+│   │   └── cleaned/              # Pre-processed JSONL training data
 │   ├── database/
-│   │   ├── db.py
-│   │   └── models.py
-│   └── tools/
-│       ├── intent_classifier.py
-│       ├── safety_checker.py
-│       ├── product_recommender.py
-│       ├── logistics_lookup.py
-│       └── case_memory.py
-│
+│   │   ├── db.py                 # SQLAlchemy session setup
+│   │   ├── models.py             # ORM models
+│   │   └── agro_mind.db          # SQLite DB (auto-created on startup)
+│   ├── tools/                    # Agent node implementations
+│   │   ├── intent_classifier.py
+│   │   ├── safety_checker.py
+│   │   ├── product_recommender.py
+│   │   ├── logistics_lookup.py
+│   │   ├── rag_retriever.py
+│   │   ├── llm_agent.py
+│   │   ├── case_memory.py
+│   │   ├── customer_profile.py
+│   │   ├── conversation_summary.py
+│   │   ├── escalation_queue.py
+│   │   ├── human_escalation.py
+│   │   └── langsmith_logger.py
+│   ├── rag_v3/                   # RAG subsystem (ChromaDB + bge-m3 embeddings)
+│   │   ├── src/
+│   │   │   ├── retrieval_tool.py
+│   │   │   ├── embeddings.py
+│   │   │   └── config.py
+│   │   └── chromadb/             # ChromaDB persistence for RAG
+│   ├── vision/                   # Crop image diagnosis subsystem
+│   │   ├── diagnosis_tool.py
+│   │   ├── embeddings.py
+│   │   ├── image_embeddings.py
+│   │   ├── image_retriever.py
+│   │   ├── hybrid_retriever.py
+│   │   ├── retriever.py
+│   │   └── ranker.py
+│   ├── vision_chromadb/          # ChromaDB persistence for vision (CLIP embeddings)
+│   ├── test_*.py                 # Manual integration test scripts (run from project root)
+│   └── system_benchmark.py       # End-to-end benchmark runner
 ├── frontend/
 │   ├── src/
-│   ├── package.json
-│   └── index.html
-│
+│   │   ├── App.jsx               # Main chat UI
+│   │   ├── CustomerProfile.jsx   # Customer profile panel
+│   │   ├── App.css
+│   │   └── index.css
+│   └── public/
+│       ├── human_escalation.html # Escalation confirmation page
+│       └── icons.svg
+├── scripts/                      # Utility and testing scripts
+│   ├── test_safety_checker.py
+│   ├── test_ollama.py
+│   └── ...
 ├── requirements.txt
-├── README.md
+├── .env                          # Secret environment variables (not committed)
 └── .gitignore
 ```
 
-## How to Run the Backend
+## API Keys & Environment Variables
 
-Open a terminal in the root project folder:
+| Variable | Purpose | Where to Get It | Format |
+|----------|---------|-----------------|--------|
+| `LANGCHAIN_TRACING_V2` | Enable/disable LangSmith tracing | Set to `true` or `false` | `true` |
+| `LANGCHAIN_API_KEY` | Authenticates with LangSmith for trace logging | [smith.langchain.com](https://smith.langchain.com) → Settings → API Keys | `lsv2_pt_XXXX...` |
+| `LANGCHAIN_PROJECT` | LangSmith project name for grouping traces | Choose any name | `Agro-Mind` |
 
-cd C:\agro-mind
-.\venv\Scripts\Activate.ps1
-uvicorn backend.main:app --reload
+Tracing is optional. Set `LANGCHAIN_TRACING_V2=false` to run without a LangSmith account.
 
-Backend runs at:
+**There are no other required external API keys.** The LLM (`qwen2.5:7b-instruct`) and embeddings (`bge-m3`) run entirely through local Ollama.
 
-http://127.0.0.1:8000
+## Known Issues
 
-FastAPI docs are available at:
+- **`backend/test_image.py` is non-functional** — it hardcodes a path to `D:\agro-mind\...` on another developer's machine. Replace with a local image path before running.
 
-http://127.0.0.1:8000/docs
-How to Run the Frontend
+- **`backend/vision/chromadb`** — a stray 0-byte file exists at this path. It is not a directory. The actual ChromaDB data for the vision subsystem is correctly stored in `backend/vision_chromadb/`. The file has no runtime effect but should be deleted when safe.
 
-Open another terminal:
+- **`frontend/public/frontend/public/human_escalation.html`** — the escalation confirmation HTML was committed at a doubly-nested wrong path. The correct copy is now at `frontend/public/human_escalation.html`. The old path is a redundant copy and can be removed.
 
-cd C:\agro-mind\frontend
-npm run dev
+- **`agenticdiagram/` directory does not exist** — architecture diagram YAML files referenced in development notes have not been committed to this branch.
 
-Frontend runs at:
+- **`backend/rag_v3/__init__.py` and `backend/rag_v3/src/__init__.py`** — both are 0-byte files. They are valid Python package markers and require no content, but are noted here for completeness.
 
-http://localhost:5173
+- **`backend/data/agro_mind.db` is committed** — the `.gitignore` instructs it to be excluded but the file is present in the repository. This is a local SQLite database that is auto-created on backend startup; it should not be in version control.
 
-## Example Messages
+- **Customer ID is not authenticated** — the `customer_id` field in the chat UI is a free-text input for demo/testing only. In production, this must come from a real authentication system (JWT, session, etc.).
 
-Try these in the chatbot:
+- **All LLM inference runs locally via Ollama** — the system will not function without Ollama running and both models (`qwen2.5:7b-instruct`, `bge-m3`) pulled. There is no cloud LLM fallback.
 
-My tomato leaves have yellow spots. What should I use?
-My child touched pesticide and his skin is burning
-Can you recommend a product for tomato aphids?
-Where is my order?
-Where is my order 1001?
-
-## Important MVP Notes
-
-This project currently uses mock data for products, orders, and customer IDs.
-
-The Customer ID input is for MVP testing only. In a production system, customer identity should come from authentication, such as a login session, JWT token, Firebase Auth, Auth0, Supabase Auth, or the client company's existing user system.
-
-The SQLite database is generated locally when the backend runs. The actual .db file should not be uploaded to GitHub.
-
-Next Planned Features
-RAG knowledge base using agricultural documents
-Better company FAQ support
-Image upload and mock crop diagnosis
-Reports summary endpoint
-Case history view
-Improved production authentication flow
-
----
-
-After pasting, save with:
-
-```text
-Ctrl + S
-
-Then delete:
-
-backend/database/agro_mind.db
-
-Keep:
-
-backend/database/db.py
-backend/database/models.py
-
-Then you’re good for GitHub.
-```
+- **Safety timeout** — the Tier 4 safety checker has a 90-second Ollama timeout. Cold model loads on first request may cause this to trigger.
