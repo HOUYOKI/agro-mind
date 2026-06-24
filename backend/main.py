@@ -1,9 +1,8 @@
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import shutil
 import os
 import tempfile
 
@@ -199,6 +198,8 @@ def review_escalation(case_id: str, request: EscalationReviewRequest):
         }
 
 
+# Keep this endpoint as a direct test endpoint.
+# Your real unified chat UI should use /chat instead.
 @app.post("/diagnose")
 async def diagnose(
     file: UploadFile = File(...),
@@ -274,74 +275,134 @@ async def diagnose(
 
 
 @app.post("/chat")
-def chat(request: ChatRequest):
-    result = run_agro_graph(
-        customer_id=request.customer_id,
-        message=request.message,
-    )
-    
-    # Final safety cleanup:
-    # If the graph produced a generic crop/food-safety response for a poison/self-harm message,
-    # override it with a safer emergency-style response.
-    if result.get("risk_level") == "high" and _is_poison_or_self_harm_message(request.message):
-        result["response"] = _safe_high_risk_response(request.message)
-        result["recommended_product"] = None
-        result["detected_crop"] = None
-        result["detected_issue"] = "High-risk poison or self-harm message"
-        result["product_reason"] = "High-risk safety case. Product recommendation disabled."
-        result["escalation_required"] = True
-        result["human_review_required"] = True
+async def chat(
+    request: Request,
+    customer_id: Optional[str] = Form(None),
+    message: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+):
+    """
+    Unified chat endpoint.
 
-    needs_review = bool(
-        result.get("escalation_required")
-        or result.get("human_review_required")
-        or result.get("risk_level") == "high"
-    )
+    Supports:
+    1. Old JSON calls:
+       {
+         "customer_id": "123",
+         "message": "my citrus leaves are yellowing"
+       }
 
-    if needs_review and not result.get("escalation_case_id"):
-        ai_response = (
-            result.get("response")
-            or result.get("answer")
-            or "This case requires human review."
+    2. New FormData calls:
+       customer_id=123
+       message=what is wrong with this crop?
+       image=<uploaded image>
+
+    This makes image diagnosis part of the normal agent flow.
+    """
+    _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+    temp_file_path = None
+    image_filename = None
+
+    try:
+        content_type = request.headers.get("content-type", "")
+
+        # Keep old JSON support for tests, curl, and Postman.
+        if "application/json" in content_type:
+            body = await request.json()
+            customer_id = body.get("customer_id")
+            message = body.get("message", "")
+
+        if not customer_id:
+            raise HTTPException(status_code=400, detail="customer_id is required.")
+
+        message = message or ""
+
+        # New unified image support.
+        # The image is saved temporarily, then passed to the LangGraph agent.
+        if image is not None:
+            data = await image.read(_MAX_UPLOAD_BYTES + 1)
+
+            if len(data) > _MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit.")
+
+            suffix = os.path.splitext(image.filename or "")[1].lower() or ".tmp"
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                temp_file_path = tmp.name
+                tmp.write(data)
+
+            image_filename = image.filename
+
+        result = run_agro_graph(
+            customer_id=customer_id,
+            message=message,
+            image_path=temp_file_path,
+            image_filename=image_filename,
         )
 
-        reason = (
-            result.get("safety_reason")
-            or result.get("risk_reason")
-            or result.get("reason")
-            or result.get("detected_issue")
-            or result.get("product_reason")
-            or "Text case requires human support review."
+        # Final safety cleanup:
+        # If the graph produced a generic crop/food-safety response for a poison/self-harm message,
+        # override it with a safer emergency-style response.
+        if result.get("risk_level") == "high" and _is_poison_or_self_harm_message(message):
+            result["response"] = _safe_high_risk_response(message)
+            result["recommended_product"] = None
+            result["detected_crop"] = None
+            result["detected_issue"] = "High-risk poison or self-harm message"
+            result["product_reason"] = "High-risk safety case. Product recommendation disabled."
+            result["escalation_required"] = True
+            result["human_review_required"] = True
+
+        needs_review = bool(
+            result.get("escalation_required")
+            or result.get("human_review_required")
+            or result.get("risk_level") == "high"
         )
 
-        case = create_escalation_case(
-            customer_id=request.customer_id,
-            case_type=result.get("intent") or "chat_support",
-            reason=reason,
-            ai_response=ai_response,
-            source="chat",
-            payload=result,
-        )
-
-        result["human_review_required"] = True
-        result["escalation_required"] = True
-        result["escalation_case_id"] = case["case_id"]
-
-        try:
-            updated_profile = update_customer_profile(
-                request.customer_id,
-                {
-                    "human_escalation_requested": True,
-                    "escalation_case_id": case["case_id"],
-                },
+        if needs_review and not result.get("escalation_case_id"):
+            ai_response = (
+                result.get("response")
+                or result.get("answer")
+                or "This case requires human review."
             )
 
-            result["updated_customer_profile"] = updated_profile
-            result["customer_profile"] = updated_profile
+            reason = (
+                result.get("safety_reason")
+                or result.get("risk_reason")
+                or result.get("reason")
+                or result.get("detected_issue")
+                or result.get("product_reason")
+                or "Text or image case requires human support review."
+            )
 
-        except Exception as error:
-            print("Customer profile chat escalation update failed:", error)
+            case = create_escalation_case(
+                customer_id=customer_id,
+                case_type=result.get("intent") or "chat_support",
+                reason=reason,
+                ai_response=ai_response,
+                source="chat",
+                payload=result,
+            )
 
-    
+            result["human_review_required"] = True
+            result["escalation_required"] = True
+            result["escalation_case_id"] = case["case_id"]
 
-    return result
+            try:
+                updated_profile = update_customer_profile(
+                    customer_id,
+                    {
+                        "human_escalation_requested": True,
+                        "escalation_case_id": case["case_id"],
+                    },
+                )
+
+                result["updated_customer_profile"] = updated_profile
+                result["customer_profile"] = updated_profile
+
+            except Exception as error:
+                print("Customer profile chat escalation update failed:", error)
+
+        return result
+
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
