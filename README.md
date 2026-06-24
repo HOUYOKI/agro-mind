@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-Agro-Mind is an AI-powered agricultural customer support assistant. Farmers and agricultural workers submit text questions or crop images through a React chat interface; a LangGraph 11-node state machine on the backend classifies intent, checks safety risk, retrieves agronomy knowledge from a RAG knowledge base, queries product and order data, and generates a response using a locally-running Ollama LLM. High-risk or low-confidence cases are automatically escalated to a human agent queue.
+Agro-Mind is an AI-powered agricultural customer support assistant. Farmers and agricultural workers submit text questions or crop images through a React chat interface; a LangGraph 12-node state machine on the backend classifies intent, checks safety risk, retrieves agronomy knowledge from a RAG knowledge base, queries product and order data, and generates a response using a locally-running Ollama LLM. High-risk or low-confidence cases are automatically escalated to a human agent queue.
 
 ## Requirements
 
@@ -98,11 +98,16 @@ agro-mind/
 │   ├── agent_graph.py            # LangGraph state machine (11 nodes)
 │   ├── config.yaml               # LLM, embedding, RAG, and path config
 │   ├── data/
-│   │   ├── products.csv          # Product catalogue
-│   │   ├── orders.jsonl          # Order records
-│   │   ├── escalations.jsonl     # Escalation log
-│   │   ├── customers.jsonl       # Customer profile store
-│   │   └── cleaned/              # Pre-processed JSONL training data
+│   │   ├── products.csv                        # Product catalogue
+│   │   ├── orders.jsonl                        # Order records
+│   │   ├── escalations.jsonl                   # Escalation log
+│   │   ├── customers.jsonl                     # Customer profile store
+│   │   ├── cat1_usage_product_real.jsonl       # Raw Q&A training data (usage/product)
+│   │   ├── cat2_diagnosis_real.jsonl           # Raw Q&A training data (crop diagnosis)
+│   │   ├── cat3_aftersales_logistics_real.jsonl # Raw Q&A training data (logistics)
+│   │   ├── cat4_safety_sensitive_real.jsonl    # Raw Q&A training data (safety)
+│   │   ├── annotated_images/                   # Crop images for vision system training
+│   │   └── cleaned/                            # Pre-processed versions of the catN JSONL files
 │   ├── database/
 │   │   ├── db.py                 # SQLAlchemy session setup
 │   │   ├── models.py             # ORM models
@@ -119,12 +124,16 @@ agro-mind/
 │   │   ├── conversation_summary.py
 │   │   ├── escalation_queue.py
 │   │   ├── human_escalation.py
+│   │   ├── retrieve_agronomy_knowledge_local.py
 │   │   └── langsmith_logger.py
 │   ├── rag_v3/                   # RAG subsystem (ChromaDB + bge-m3 embeddings)
 │   │   ├── src/
 │   │   │   ├── retrieval_tool.py
 │   │   │   ├── embeddings.py
 │   │   │   └── config.py
+│   │   ├── data/
+│   │   │   └── clean_entities.json
+│   │   ├── requirements.txt      # RAG-subsystem-specific dependencies
 │   │   └── chromadb/             # ChromaDB persistence for RAG
 │   ├── vision/                   # Crop image diagnosis subsystem
 │   │   ├── diagnosis_tool.py
