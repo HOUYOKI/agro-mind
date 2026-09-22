@@ -22,7 +22,7 @@ Agro-Mind is an AI-powered agricultural customer support assistant. Farmers and 
   <img src="assets/test_agro_mind.png" alt="Agro-Mind Agent Analysis" width="90%">
 </p>
 
-## 🚀 Current MVP
+## Current MVP
 
 The current version includes:
 
@@ -253,6 +253,6 @@ Tracing is optional. Set `LANGCHAIN_TRACING_V2=false` to run without a LangSmith
 
 - **Safety timeout** — the Tier 4 safety checker has a 90-second Ollama timeout. Cold model loads on first request may cause this to trigger.
 
-##🎓 Project Context
+## 🎓 Project Context
 
 Developed as part of the Saudi Digital Academy (SDA) Agentic AI Bootcamp in collaboration with WeCloudData.
