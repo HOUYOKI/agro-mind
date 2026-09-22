@@ -124,10 +124,11 @@ Frontend runs at `http://localhost:5173`
 
 > **Image upload via `/chat`:** The `/chat` endpoint accepts both JSON (`{"customer_id": "...", "message": "..."}`) and multipart FormData (`customer_id`, `message`, optional `image` file). When an image is included, the agent runs vision diagnosis as part of the normal graph flow. The standalone `/diagnose` endpoint also exists for direct image-only testing.
 
-## 💬 Example Messages
+## Example Messages
+
+Try these messages in the chatbot:
 
 ```text
-Try these messages in the chatbot:
 
 My tomato leaves have yellow spots. What should I use?
 
