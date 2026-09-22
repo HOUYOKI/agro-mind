@@ -1,9 +1,8 @@
 <div align="center">
-  <img src="assets/Agro_present.png" alt="Agro-Mind Banner" width="100%">
-
+  
   # 🌱 Agro-Mind
   Agro-Mind is an AI-powered agricultural customer support assistant built for a bootcamp client project.
-  
+    <img src="assets/Agro_present.png" alt="Agro-Mind Banner" width="100%">
 </div>
 
 ## Project Summary
