@@ -129,7 +129,6 @@ Frontend runs at `http://localhost:5173`
 Try these messages in the chatbot:
 
 ```text
-
 My tomato leaves have yellow spots. What should I use?
 
 My child touched pesticide and his skin is burning
