@@ -1,8 +1,40 @@
-# Agro-Mind
+<div align="center">
+  <img src="assets/Agro_present.png" alt="Agro-Mind Banner" width="100%">
+
+  # 🌱 Agro-Mind
+  Agro-Mind is an AI-powered agricultural customer support assistant built for a bootcamp client project.
+  
+</div>
 
 ## Project Summary
 
 Agro-Mind is an AI-powered agricultural customer support assistant. Farmers and agricultural workers submit text questions or crop images through a React chat interface; a LangGraph 12-node state machine on the backend classifies intent, checks safety risk, retrieves agronomy knowledge from a RAG knowledge base, queries product and order data, and generates a response using a locally-running Ollama LLM. High-risk or low-confidence cases are automatically escalated to a human agent queue.
+
+## 📸 Application Preview
+
+<p align="center">
+  <img src="assets/agro_frontend.png" alt="Agro-Mind Application" width="90%">
+</p>
+
+## 🔍 Agent Analysis
+
+<p align="center">
+  <img src="assets/test_agro_mind.png" alt="Agro-Mind Agent Analysis" width="90%">
+</p>
+
+## 🚀 Current MVP
+
+The current version includes:
+
+- React chatbot frontend
+- FastAPI backend
+- Intent classification
+- Safety risk checking
+- Product recommendation from mock CSV data
+- Order and logistics lookup from mock CSV data
+- SQLite case saving
+- Duplicate case protection for repeated messages
+- Agent analysis panel showing intent, risk, product/order details, escalation, and case ID
 
 ## Requirements
 
@@ -91,6 +123,22 @@ Frontend runs at `http://localhost:5173`
 
 > **Image upload via `/chat`:** The `/chat` endpoint accepts both JSON (`{"customer_id": "...", "message": "..."}`) and multipart FormData (`customer_id`, `message`, optional `image` file). When an image is included, the agent runs vision diagnosis as part of the normal graph flow. The standalone `/diagnose` endpoint also exists for direct image-only testing.
 
+## 💬 Example Messages
+
+```text
+Try these messages in the chatbot:
+
+My tomato leaves have yellow spots. What should I use?
+
+My child touched pesticide and his skin is burning
+
+Can you recommend a product for tomato aphids?
+
+Where is my order?
+
+Where is my order 1001?
+```
+
 ## Project Structure
 
 ```
@@ -163,6 +211,11 @@ agro-mind/
 │   ├── test_safety_checker.py
 │   ├── test_ollama.py
 │   └── ...
+├── assets/
+│   ├── Agro_present.png
+│   ├── agro_frontend.png
+│   └── test_agro_mind.png
+│
 ├── requirements.txt
 ├── .env                          # Secret environment variables (not committed)
 └── .gitignore
@@ -199,3 +252,7 @@ Tracing is optional. Set `LANGCHAIN_TRACING_V2=false` to run without a LangSmith
 - **All LLM inference runs locally via Ollama** — the system will not function without Ollama running and both models (`qwen2.5:7b-instruct`, `bge-m3`) pulled. There is no cloud LLM fallback.
 
 - **Safety timeout** — the Tier 4 safety checker has a 90-second Ollama timeout. Cold model loads on first request may cause this to trigger.
+
+##🎓 Project Context
+
+Developed as part of the Saudi Digital Academy (SDA) Agentic AI Bootcamp in collaboration with WeCloudData.
